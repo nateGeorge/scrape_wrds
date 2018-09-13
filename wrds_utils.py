@@ -1,6 +1,6 @@
 import pandas as pd
 
-FILEPATH = '/media/nate/DATA/Dropbox/data/wrds/compustat_north_america/'
+FILEPATH = '/home/nate/Dropbox/data/wrds/compustat_north_america/'
 
 hdf_settings = {'key': 'data',
                 'mode': 'w',
