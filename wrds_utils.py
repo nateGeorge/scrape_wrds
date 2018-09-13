@@ -4,8 +4,12 @@ FILEPATH = '/home/nate/Dropbox/data/wrds/compustat_north_america/'
 
 hdf_settings = {'key': 'data',
                 'mode': 'w',
-                'complib': 'blosc',
+                # 'complib': 'blosc',
                 'complevel': 9}
+
+fund_hdf_settings = {'key': 'data',
+                    'mode': 'w',
+                    'complevel': 9}
 
 
 """
@@ -29,16 +33,17 @@ ind_ann_df.to_hdf(FILEPATH + 'hdf/industry_annual_9-12-2018.hdf', **hdf_settings
 
 # quarterly fundamental data
 qrt_fund_df = pd.read_csv(FILEPATH + 'tsv/quarterly_fundamentals_9-12-2018.txt', sep='\t')
-qrt_fund_df.to_hdf(FILEPATH + 'hdf/quarterly_fundamentals_9-12-2018.hdf', **hdf_settings)
+# blosc doesn't seem to work
+qrt_fund_df.to_hdf(FILEPATH + 'hdf/quarterly_fundamentals_9-12-2018.hdf', **fund_hdf_settings)
 
 # annual fundamentals
 ann_fund_df = pd.read_csv(FILEPATH + 'tsv/annual_fundamentals_9-12-2018.txt', sep='\t')
-ann_fund_df.to_hdf(FILEPATH + 'hdf/annual_fundamentals_9-12-2018.hdf', **hdf_settings)
+ann_fund_df.to_hdf(FILEPATH + 'hdf/annual_fundamentals_9-12-2018.hdf', **fund_hdf_settings)
 
 
 """
 # monthly securities data
-mnth_sec_df = pd.read_csv(FILEPATH + 'tsv/monthly_securities_data_9-12-2018.xlsx', sep='\t')
+mnth_sec_df = pd.read_csv(FILEPATH + 'tsv/monthly_securities_data_9-12-2018.txt', sep='\t')
 mnth_sec_df.to_hdf(FILEPATH + 'hdf/monthly_securities_data_9-12-2018.hdf', **hdf_settings)
 
 # otc daily
