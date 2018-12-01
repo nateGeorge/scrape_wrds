@@ -1,5 +1,6 @@
 """
 names_ix has index gvkeyx and index name
+- comes from idx_ann table in compd library -- need to rewrite query
 idxcst_his has the historical index constituents
 """
 
@@ -25,20 +26,35 @@ hdf_settings = {'key': 'data',
                 'complib': 'blosc',
                 'complevel': 9}
 
-db = wrds.Connection()
-# saves credentials
-# db.create_pgpass_file()
 
-db.list_libraries()
-db.list_tables('zacks')
-db.list_tables('ciq')  # don't have permission??
-db.list_tables('comp_global_daily')
+def make_db_connection():
+    """
+    creates connection to WRDS database
+    need to enter credentials to log in
+    """
+    db = wrds.Connection()
+    # saves credentials, but not working
+    # db.create_pgpass_file()
+    return db
 
-db.list_tables('comp')
+
+def list_libs_tables():
+    """
+    some exploration of the db
+    lists libraries, and within each library you can list tables
+    """
+    db.list_libraries()
+    db.list_tables('zacks')
+    db.list_tables('ciq')  # don't have permission??
+    db.list_tables('comp_global_daily')
+
+    db.list_tables('comp')
 
 
 def download_entire_table(tablename, library='comp'):
     """
+    downloads an entire table by name; library also required.
+
     default library is the compstat lib
     download entire table
     e.g. tablename='sec_shortint'
@@ -51,16 +67,17 @@ def download_entire_table(tablename, library='comp'):
 
     secd is about 39GB in a pandas df...
 
-    TODO: get latest date already downloaded and use sql query to update
+    TODO: get latest date already downloaded and use sql query to gegt updates;
+    then save to HDF5
 
-    for tables like 'security', check if any more rows and grab new stuff, or just grab whole table if cant figure out what new stuff is
-
+    for tables like 'security', check if any more rows and grab new stuff,
+    or just grab whole table if cant figure out what new stuff is
     """
     nrows = db.get_row_count(library, tablename)
     print('number of rows:', nrows)
     #db.describe_table(library, tablename)
     # nrows = 1000000
-    if tablename == 'secd':
+    if tablename == 'secd':  # this is the securities data db -- has historical price data for securities
         cols_to_use = ['ajexdi', # Adjusted Price = (PRCCD / AJEXDI ); “Understanding the Data” on page 91 and on (chapter 6)
                          'cshoc',  # shares outstanding
                          'cshtrd', # volume
@@ -91,7 +108,7 @@ def download_entire_table(tablename, library='comp'):
                         'prcld',
                         'prcod']
 
-        # WARNING: does not appear to work properly.  probbably a sql ordering issue or something
+        # WARNING: does not appear to work properly.  probably a sql ordering issue or something
         nobs = 10000000
         for i, start in enumerate(range(0, nrows, nobs), 1):
             print('on part', str(i))
@@ -110,37 +127,27 @@ def download_entire_table(tablename, library='comp'):
         df.to_hdf(FILEPATH + 'hdf/{}.hdf'.format(tablename), **hdf_settings)
 
 
-# raw sql to get historical security data
-df = pd.read_hdf(FILEPATH + 'hdf/idxcst_his.hdf')
+def test_sql_queries():
+    pass
+    # with limit for testing
+    # df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({}) LIMIT 10;'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
+    # takes a really long time...
+    # # df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({});'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
 
-sp600_df = df[df['gvkeyx'] == '030824']
-sp600_gvkeys = np.unique(sp600_df['gvkey'].values)
-sp600_gvkeys_strings = ["'" + gv + "'" for gv in sp600_gvkeys]
-sp600_gvkeys_string = ', '.join(sp600_gvkeys_strings)
+    # see how long one query takes -- about 2s
+    # start = time.time()
+    # df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_strings[0]), date_cols=['datadate'])
+    # end = time.time()
+    # print('took', int(end - start), 'seconds')
 
-# with limit for testing
-# df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({}) LIMIT 10;'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
-# takes a really longe time...
-# # df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({});'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
+    # takes about 2h linearly
+    # dfs = []
+    # for gv in tqdm(sp600_gvkeys_strings):
+    #     df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, gv), date_cols=['datadate'])
+    #     dfs.append(df)
 
-# see how long one query takes -- about 2s
-# start = time.time()
-# df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_strings[0]), date_cols=['datadate'])
-# end = time.time()
-# print('took', int(end - start), 'seconds')
-
-# takes about 2h linearly
-# dfs = []
-# for gv in tqdm(sp600_gvkeys_strings):
-#     df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, gv), date_cols=['datadate'])
-#     dfs.append(df)
-
-
-securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
-all_gvkeys = securities['gvkey'].values
-
-remaining_gvs = list(set(all_gvkeys).difference(set(sp600_gvkeys)))
-
+    # testing
+    # df = db.raw_sql('select {} from {}.{} WHERE gvkey = \'001004\' LIMIT 10;'.format(','.join(cols_to_use), library, tablename), date_cols=['datadate'])
 
 
 
@@ -161,49 +168,73 @@ def get_stock_hist_df(gvkey, library='comp', tablename='secd'):
     return df
 
 
-# chunk through remaining gvkeys in 10 chunks
-chunk_size = len(remaining_gvs) // 10
-for i, ch in enumerate(range(0, len(remaining_gvs) + 1, chunk_size)):
-    start =  ch
-    if ch + chunk_size > len(remaining_gvs):
-        gvkeys_strings = ["'" + gv + "'" for gv in remaining_gvs[start:]]
-    else:
-        gvkeys_strings = ["'" + gv + "'" for gv in remaining_gvs[start:ch + chunk_size]]
+def download_all_security_data():
+    """
+    downloads full security data history
 
-    # seems like 5 simultaneous queries is max
-    start = time.time()
-    jobs = []
-    with ThreadPoolExecutor(max_workers=5) as executor:  # 10 threads per cpu for 8 cores; default is 5 per CPU
-        for gv in gvkeys_strings:
-            jobs.append((gv, executor.submit(get_stock_hist_df, gv)))
+    TODO: get latest date and download updates
+    """
+    df = pd.read_hdf(FILEPATH + 'hdf/idxcst_his.hdf')
 
-    dfs = []
-    for gv, j in jobs:
-        # print(gv)
-        dfs.append(j.result())
+    sp600_df = df[df['gvkeyx'] == '030824']
+    sp600_gvkeys = np.unique(sp600_df['gvkey'].values)
+    sp600_gvkeys_strings = ["'" + gv + "'" for gv in sp600_gvkeys]
+    sp600_gvkeys_string = ', '.join(sp600_gvkeys_strings)
 
-    end = time.time()
-    print('took', int(end - start), 'seconds')
+    # reads in all securities
+    securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
+    all_gvkeys = securities['gvkey'].values
 
-    big_df = pd.concat(dfs)
-    big_df['datadate'] = pd.to_datetime(big_df['datadate']).dt.tz_localize('US/Eastern')
-    # big_df['datadate'] = pd.Timestamp(big_df['datadate'])  # doesn't work!!
-    # big_df['datadate'].dt.tz_localize('US/Eastern')
-    big_df.to_hdf(FILEPATH + 'hdf/daily_security_data__chunk_{}_9-15-2018.hdf'.format(str(i)), **hdf_settings)
-    del jobs
-    del dfs
-    del big_df
-    gc.collect()
+    remaining_gvs = list(set(all_gvkeys).difference(set(sp600_gvkeys)))
 
-# 30 seconds per 50 -- should take about 20m for 2k
-# took 1282s for 2127 gvkeys
+    # raw sql to get historical security data
+    # goes through all securities and downloads historical price data
+    # chunk through remaining gvkeys in 10 chunks
+    chunk_size = len(remaining_gvs) // 10
+    for i, ch in enumerate(range(0, len(remaining_gvs) + 1, chunk_size)):
+        # first make strings out of gvkeys for SQL query
+        start = ch
+        if ch + chunk_size > len(remaining_gvs):
+            gvkeys_strings = ["'" + gv + "'" for gv in remaining_gvs[start:]]
+        else:
+            gvkeys_strings = ["'" + gv + "'" for gv in remaining_gvs[start:ch + chunk_size]]
 
+        start = time.time()
+        jobs = []
+        # 10 threads per cpu for 8 cores; default is 5 per CPU
+        # seems like 5 simultaneous queries is max -- run in parallel
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            for gv in gvkeys_strings:
+                jobs.append((gv, executor.submit(get_stock_hist_df, gv)))
 
-# testing
-# df = db.raw_sql('select {} from {}.{} WHERE gvkey = \'001004\' LIMIT 10;'.format(','.join(cols_to_use), library, tablename), date_cols=['datadate'])
+        dfs = []
+        for gv, j in jobs:
+            # print(gv)
+            dfs.append(j.result())
+
+        end = time.time()
+        print('took', int(end - start), 'seconds')
+
+        big_df = pd.concat(dfs)
+        big_df['datadate'] = pd.to_datetime(big_df['datadate']).dt.tz_localize('US/Eastern')
+        # big_df['datadate'] = pd.Timestamp(big_df['datadate'])  # doesn't work!!
+        # big_df['datadate'].dt.tz_localize('US/Eastern')
+        # TODO: dynamically set date instead of hard copy
+        big_df.to_hdf(FILEPATH + 'hdf/daily_security_data__chunk_{}_9-15-2018.hdf'.format(str(i)), **hdf_settings)
+        del jobs
+        del dfs
+        del big_df
+        gc.collect()
+
+        # 30 seconds per 50 -- should take about 20m for 2k
+        # took 1282s for 2127 gvkeys
+
 
 
 def load_and_combine_sec_dprc():
+    """
+    loads all security data from sec_dprc table
+    """
     dfs = []
     for i in tqdm(range(1, 13)):
         # print(i)
@@ -243,14 +274,33 @@ def load_and_combine_sec_dprc():
 
 
 
-def get_historical_constituents_wrds_hdf(date_range=None):
+def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 600 Index'):
     # adapted from beat_market_analysis constituent_utils.py
     """
     gets historical constituents from WRDS file
+
+    common indexes as represented in the idx_ann table:
+    SP600: S&P Smallcap 600 Index
+    SP400: S&P Midcap 400 Index
+    SP500: S&P 500 Comp-Ltd (there's another one with Wed instead of Ltd which I don't know what it is)
+    SP1500: S&P 1500 Super Composite
+
+    NASDAQ 100: Nasdaq 100
     """
+    idx_df = pd.read_hdf(FILEPATH + 'hdf/names_ix.hdf')
+    gvkeyx = idx_df[idx_df['conm'] == index]['gvkeyx'].values
+    if len(gvkeyx) > 1:
+        print('more than 1 gvkeyx, exiting:')
+        print(idx_df[idx_df['conm'] == index])
+        return
+
+    gvkeyx = gvkeyx[0]
+
     # TODO: get latest file
-    df = pd.read_hdf(FILEPATH + 'hdf/idxcst_his.hdf')# parse dates not working for hdf, parse_dates=['from', 'thru'], infer_datetime_format=True)
+    # parse dates not working for hdf, parse_dates=['from', 'thru'], infer_datetime_format=True)
+    const_df = pd.read_hdf(FILEPATH + 'hdf/idxcst_his.hdf')
     # only need to do this once, then after it's saved, good to go
+    # TODO: put this in a clean function and do when saving the file
     # df['from'] = pd.to_datetime(df['from'], utc=True)
     # df['thru'] = pd.to_datetime(df['thru'], utc=True)
     # df['from'] = df['from'].dt.tz_convert('US/Eastern')
@@ -258,25 +308,23 @@ def get_historical_constituents_wrds_hdf(date_range=None):
     # df.to_hdf(FILEPATH + 'hdf/index_constituents_9-12-2018.hdf', **hdf_settings)
 
     # need to join up with other dataframe maybe, for now, just use gvkeyx which is
-    # 030824 from the file
+    # 030824 for sp600
     # df2 = pd.read_hdf(FILEPATH + 'hdf/names_ix.hdf')
 
-    # only use s&p600 for now
-    # sp600_df = df[df['conm'] == 'S&P Smallcap 600 Index']
-    # converted to int, so leading 0 is gone
-    sp600_df = df[df['gvkeyx'] == '030824']
+    single_idx_df = const_df[const_df['gvkeyx'] == gvkeyx].copy()
 
-    # save sp600 gvkeys for sql search
-    sp600_gvkeys = sp600_df['gvkey'].values
+    # get stocks' gvkeys for sql search -- no longer needed
+    # gvkeys = single_idx_df['gvkey'].values
 
     # create dataframe with list of constituents for each day
-    start = sp600_df['from'].min()
+    start = single_idx_df['from'].min()
     # get todays date and reset hour, min, sec to 0s
+    # TODO: if not latest date; use date of datafile as latest
     end = pd.Timestamp.today(tz='US/Eastern').replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None).tz_localize('US/Eastern')
 
     # replace NaT with tomorrow's date
     # gives copy warning but can't get rid of it...
-    sp600_df['thru'].fillna(end + pd.DateOffset(days=1), inplace=True)
+    single_idx_df['thru'].fillna(end + pd.DateOffset(days=1), inplace=True)
 
 
     nyse = mcal.get_calendar('NYSE')
@@ -296,13 +344,14 @@ def get_historical_constituents_wrds_hdf(date_range=None):
     lengths = []
 
     # TODO: multiprocessing to speed up
+    # takes about 10s for nasdaq 100
     for d in tqdm(date_range):
         # if date is within stock's from and thru, add to list
         # stocks were removed on 'thru', so if it is the 'thru' date, then shouldn't be included
         # but stocks were added on 'from' date, so include stocks on 'from' date
         # use dataframe masking
         date_string = d.strftime('%Y-%m-%d')
-        current_stocks = sp600_df[(sp600_df['from'] <= d) & (sp600_df['thru'] > d)]
+        current_stocks = single_idx_df[(single_idx_df['from'] <= d) & (single_idx_df['thru'] > d)]
         current_companies = current_stocks[['gvkey', 'iid']]  # company names
         # current_tickers = current_stocks['co_tic']  # company tickers
         constituent_companies[date_string] = current_companies
@@ -318,7 +367,7 @@ def get_historical_constituents_wrds_hdf(date_range=None):
     # need to check that no tickers are used for multiple companies
 
     # get unique dates where changes were made
-    unique_dates = set(sp600_df['from'].unique()) | set(sp600_df['thru'].unique())
+    unique_dates = set(single_idx_df['from'].unique()) | set(single_idx_df['thru'].unique())
 
     return constituent_companies, unique_dates
 
