@@ -26,6 +26,28 @@ hdf_settings = {'key': 'data',
                 'complib': 'blosc',
                 'complevel': 9}
 
+hdf_settings_table = {'key': 'data',
+                    'mode': 'a',
+                    'append': True,
+                    'format': 'table',
+                    'complib': 'blosc',
+                    'complevel': 9}
+
+secd_cols_to_use = ['ajexdi',  # Adjusted Price = (PRCCD / AJEXDI ); “Understanding the Data” on page 91 and on (chapter 6)
+                    'cshoc',  # shares outstanding
+                    'cshtrd',  # volume
+                    'curcdd',
+                    'datadate',
+                    'eps',
+                    'gvkey',
+                    'iid',
+                    'prccd',  # close
+                    'prchd',  # high
+                    'prcld',  # low
+                    'prcod']  # open
+
+secd_cols = ','.join(secd_cols_to_use)
+
 
 def make_db_connection():
     """
@@ -220,69 +242,82 @@ def download_small_table(db, table, library='comp'):
 
     df.to_hdf(df_filepath, **hdf_settings)
 
+    del df
+    gc.collect()
 
-def download_common_stock_price_history(db, update=True):
+
+def download_common_stock_price_history(db, update=True, table='secd', library='comp'):
     """
     downloads data for all common stocks (US and ADR, or tpci column is 0 or F)
 
     if update=True, will get latest date in current df, then get everything after that
     and add to current df
     """
-    pass
+    # filename from first iteration
+    # secd_filename = FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf'
+    secd_filename = FILEPATH + 'hdf/secd.hdf'
+    current_df = pd.read_hdf(secd_filename)
+    latest_date = current_df['datadate'].max().strftime('%m/%d/%y')
 
+    # get gvkeys for tpci 0 or F
+    # ends up with very slow sql query; avoid
+    securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
+    common_securities = securities[securities['tpci'].isin(['0', 'F'])]
+    # # make string for SQL query: WHERE IN
+    # # should be like ('item 1', 'item 2', 'item 3')
+    # gvkeys_str = '(' + ', '.join(["'" + s + "'" for s in common_securities['gvkey']]) + ')'
 
+    # if you want to count how many rows are there, use this.
+    # full data query only took a few seconds even with 1M rows
+    # query_str = 'select count(gvkey) from comp.secd where datadate > \'{}\';'.format(latest_date)
+    # db.raw_sql(query_str)
 
+    query_str = 'select {} from {}.{} WHERE datadate > \'{}\';'# and gvkey IN {};'
+    df = db.raw_sql(query_str.format(secd_cols, library, table, latest_date), date_cols=['datadate'])
+    # drop columns which seem to have weird dates
+    df.drop(df['prccd'].apply(lambda x: x is None).index, inplace=True)
+    if not df.shape[0] > 0:
+        print("no data to be found!")
+        return
 
-def download_idx_table():
-    """
-    checks if size of table has changed; if so;
-    downloads table with index gvkeyx and index names
-    """
+    # convert datadate to datetime64
+    df['datadate'] = pd.to_datetime(df['datadate']).dt.tz_localize('US/Eastern')
+    # colculate market cap
+    df['market_cap'] = df['cshoc'] * df['prccd']
 
+    # TODO: create file for storing all updated data and append
+    # used once to write data
+    # df.to_hdf(FILEPATH + 'hdf/secd_full_9-11-2018_thru_11-30-2018.hdf', **hdf_settings)
+    df.to_hdf(FILEPATH + 'hdf/secd_all_9-11-2018_onward.hdf', **hdf_settings_table)
 
-def test_sql_queries():
-    pass
-    # with limit for testing
-    # df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({}) LIMIT 10;'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
-    # takes a really long time...
-    # # df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({});'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
+    # only keep common stocks (tpci = 0 and F)
+    common_securities_short = common_securities[['gvkey', 'iid']]
+    common_df = df.merge(common_securities_short, on=['gvkey', 'iid'])
+    common_df.drop('curcdd', inplace=True, axis=1)  # drop currency column
+    # write existing data as hdf table -- first time only
+    # current_df.to_hdf(secd_filename, **hdf_settings_table)
 
-    # see how long one query takes -- about 2s
-    # start = time.time()
-    # df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_strings[0]), date_cols=['datadate'])
-    # end = time.time()
-    # print('took', int(end - start), 'seconds')
+    # appends to hdf store
+    common_df.to_hdf(secd_filename, **hdf_settings_table)
 
-    # takes about 2h linearly
-    # dfs = []
-    # for gv in tqdm(sp600_gvkeys_strings):
-    #     df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, gv), date_cols=['datadate'])
-    #     dfs.append(df)
-
-    # testing
-    # df = db.raw_sql('select {} from {}.{} WHERE gvkey = \'001004\' LIMIT 10;'.format(','.join(cols_to_use), library, tablename), date_cols=['datadate'])
+    del current_df
+    del securities
+    del df
+    del common_df
+    del common_securities
+    gc.collect()
 
 
 def get_stock_hist_df(gvkey, library='comp', tablename='secd'):
-    cols_to_use = ['ajexdi',
-                        'cshoc',
-                        'cshtrd',
-                        'curcdd',
-                        'datadate',
-                        'eps',
-                        'gvkey',
-                        'iid',
-                        'prccd',
-                        'prchd',
-                        'prcld',
-                        'prcod']
-    df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, gvkey), date_cols=['datadate'])
+    df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(secd_cols, library, tablename, gvkey), date_cols=['datadate'])
     return df
 
 
 def download_all_security_data():
     """
     downloads full security data history for sp600
+    I think this was actually used to get all historical stock data actually,
+    not just sp600.
 
     TODO: get latest date and download updates
     """
@@ -708,6 +743,29 @@ def secd_info():
      'trfd']
     """
     pass
+
+
+def test_sql_queries():
+    pass
+    # with limit for testing
+    # df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({}) LIMIT 10;'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
+    # takes a really long time...
+    # # df = db.raw_sql('select {} from {}.{} WHERE gvkey IN ({});'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_string), date_cols=['datadate'])
+
+    # see how long one query takes -- about 2s
+    # start = time.time()
+    # df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, sp600_gvkeys_strings[0]), date_cols=['datadate'])
+    # end = time.time()
+    # print('took', int(end - start), 'seconds')
+
+    # takes about 2h linearly
+    # dfs = []
+    # for gv in tqdm(sp600_gvkeys_strings):
+    #     df = db.raw_sql('select {} from {}.{} WHERE gvkey = {};'.format(','.join(cols_to_use), library, tablename, gv), date_cols=['datadate'])
+    #     dfs.append(df)
+
+    # testing
+    # df = db.raw_sql('select {} from {}.{} WHERE gvkey = \'001004\' LIMIT 10;'.format(','.join(cols_to_use), library, tablename), date_cols=['datadate'])
 
 
 def testing_db():
