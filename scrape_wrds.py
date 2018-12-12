@@ -88,7 +88,6 @@ def download_small_table(db, table, library='comp', return_table=False):
     df_filepath = FILEPATH + 'hdf/{}.hdf'.format(table)
     up_to_date, nrows = check_if_up_to_date(db, df_filepath, table=table, library=library)
     if up_to_date:
-        print('up to date')
         if return_table:
             return None
 
@@ -129,17 +128,20 @@ def get_stock_hist_df(gvkey, library='comp', tablename='secd'):
     return df
 
 
-def update_small_tables():
+def update_small_tables(db):
     """
     small tables:
     idxcst_his -- historical index constituents
     security -- list of securities with gvkey and other info
     names_ix -- list of indexes with info (like gxkey)
     sec_shortint -- monthly short data
+
+    Keyword arguments:
+    db -- connection to wrds db, from make_db_connection() function
     """
     short_tables = ['idxcst_his', 'security', 'names_ix', 'sec_shortint']
     for t in short_tables:
-        download_small_table(db=t, table=t)
+        download_small_table(db=db, table=t)
 
 
 
