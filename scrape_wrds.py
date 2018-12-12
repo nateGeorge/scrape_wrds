@@ -133,7 +133,7 @@ def update_small_tables(db):
     small tables:
     idxcst_his -- historical index constituents
     security -- list of securities with gvkey and other info
-    names_ix -- list of indexes with info (like gxkey)
+    names_ix -- list of indexes with info (like gvkeyx)
     sec_shortint -- monthly short data
 
     Keyword arguments:
