@@ -84,6 +84,10 @@ def check_if_up_to_date(db, df_filepath, table, library='comp'):
         print('something is wrong...')
         return True, nrows
     else:
+        if (nrows - 1) == current_rows and table == 'sec_shortint':
+            print('off by one row, but probly up to date on sec_shortint')
+            return True, nrows
+
         print('db needs updating')
         return False, nrows
 
@@ -112,8 +116,9 @@ def download_small_table(db, table, library='comp', return_table=False):
     if up_to_date:
         if return_table:
             return None
+        return
 
-    df = db.get_table(library=library, table=table, obs=nrows)
+    df = db.get_table(library=library, table=table)
     if table == 'idxcst_his':
         # converts date columns to datetime
         df['from'] = pd.to_datetime(df['from'], utc=True)
@@ -163,6 +168,7 @@ def update_small_tables(db):
     """
     short_tables = ['idxcst_his', 'security', 'names_ix', 'sec_shortint']
     for t in short_tables:
+        print(t)
         download_small_table(db=db, table=t)
 
 
@@ -170,7 +176,7 @@ def load_secd(clean=False):
     secd_filename = FILEPATH + 'hdf/secd.hdf'
     current_df = pd.read_hdf(secd_filename)
     # need to drop messed up values if clean==True
-    if clean == True:
+    if clean:
         # drops lots of columns that shouldn't be dropped
         # current_df.dropna(inplace=True)
         # can use to check which entries are bad
@@ -202,6 +208,10 @@ def download_common_stock_price_history(db, update=True, table='secd', library='
     else:
         with open(latest_date_filename, 'r') as f:
             latest_date = f.read()
+
+    if latest_date == pd.Timestamp.now(tz='US/Eastern').strftime('%Y-%m-%d'):
+        print('up to date on secd')
+        return
 
     # get gvkeys for tpci 0 or F
     # ends up with very slow sql query; avoid
@@ -244,6 +254,10 @@ def download_common_stock_price_history(db, update=True, table='secd', library='
 
     # appends to hdf store
     common_df.to_hdf(secd_filename, **hdf_settings_table)
+    # update latest date file
+    latest_date = current_df['datadate'].max().strftime('%Y-%m-%d')#.strftime('%m/%d/%y')
+    with open(latest_date_filename, 'w') as  f:
+        f.write(latest_date)
 
     del current_df
     del securities
@@ -253,7 +267,16 @@ def download_common_stock_price_history(db, update=True, table='secd', library='
     gc.collect()
 
 
+def hourly_update_check(db):
+    """
+    checks for updated data once per hour
+    """
+    while True:
+        update_small_tables(db)
+        download_common_stock_price_history(db)
+        time.sleep(3600)
+
 
 if __name__ == "__main__":
     db = make_db_connection()
-    update_small_tables()
+    update_small_tables(db)
