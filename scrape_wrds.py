@@ -19,6 +19,28 @@ hdf_settings = {'key': 'data',
                 'complib': 'blosc',
                 'complevel': 9}
 
+hdf_settings_table = {'key': 'data',
+                    'mode': 'a',
+                    'append': True,
+                    'format': 'table',
+                    'complib': 'blosc',
+                    'complevel': 9}
+
+secd_cols_to_use = ['ajexdi',  # Adjusted Price = (PRCCD / AJEXDI ); “Understanding the Data” on page 91 and on (chapter 6)
+                    'cshoc',  # shares outstanding
+                    'cshtrd',  # volume
+                    'curcdd',
+                    'datadate',
+                    'eps',
+                    'gvkey',
+                    'iid',
+                    'prccd',  # close
+                    'prchd',  # high
+                    'prcld',  # low
+                    'prcod']  # open
+
+secd_cols = ','.join(secd_cols_to_use)
+
 
 def make_db_connection():
     """
@@ -144,5 +166,94 @@ def update_small_tables(db):
         download_small_table(db=db, table=t)
 
 
+def load_secd(clean=False):
+    secd_filename = FILEPATH + 'hdf/secd.hdf'
+    current_df = pd.read_hdf(secd_filename)
+    # need to drop messed up values if clean==True
+    if clean == True:
+        # drops lots of columns that shouldn't be dropped
+        # current_df.dropna(inplace=True)
+        # can use to check which entries are bad
+        # current_df[current_df['datadate'] >  pd.Timestamp.now(tz='US/Eastern')]
+        current_df.drop(current_df[current_df['datadate'] > '11/30/2018'].index, inplace=True)
+        # takes about 6 minutes to save
+        current_df.to_hdf(secd_filename, **hdf_settings_table)
 
-db = make_db_connection()
+    return current_df
+
+
+def download_common_stock_price_history(db, update=True, table='secd', library='comp'):
+    """
+    downloads data for all common stocks (US and ADR, or tpci column is 0 or F)
+
+    if update=True, will get latest date in current df, then get everything after that
+    and add to current df
+    """
+    # filename from first iteration
+    # secd_filename = FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf'
+    latest_date_filename = FILEPATH + 'latest_secd_datadate.txt'
+    if not os.path.exists(latest_date_filename):
+        # as of 12-13-2018, takes about 40gb to load full thing, around 32 to load datadate
+        # this is just for saving the latest date the first time
+        current_df = load_secd()
+        latest_date = current_df['datadate'].max().strftime('%Y-%m-%d')#.strftime('%m/%d/%y')
+        with open(latest_date_filename, 'w') as  f:
+            f.write(latest_date)
+    else:
+        with open(latest_date_filename, 'r') as f:
+            latest_date = f.read()
+
+    # get gvkeys for tpci 0 or F
+    # ends up with very slow sql query; avoid
+    securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
+    common_securities = securities[securities['tpci'].isin(['0', 'F'])]
+    # # make string for SQL query: WHERE IN
+    # # should be like ('item 1', 'item 2', 'item 3')
+    # gvkeys_str = '(' + ', '.join(["'" + s + "'" for s in common_securities['gvkey']]) + ')'
+
+    # if you want to count how many rows are there, use this.
+    # full data query only took a few seconds even with 1M rows
+    # query_str = 'select count(gvkey) from comp.secd where datadate > \'{}\';'.format(latest_date)
+    # db.raw_sql(query_str)
+
+    todays_date = pd.Timestamp.now(tz='US/Eastern')
+    query_str = 'select {} from {}.{} WHERE datadate > \'{}\' AND datadate <= \'{}\';'# and gvkey IN {};'
+    df = db.raw_sql(query_str.format(secd_cols, library, table, latest_date, todays_date), date_cols=['datadate'])
+    # drop columns which seem to have weird dates -- don't need with date filter
+    # df.drop(df[df['prccd'].apply(lambda x: x is None)].index, inplace=True)
+    if not df.shape[0] > 0:
+        print("no data to be found!")
+        return
+
+    # convert datadate to datetime64
+    df['datadate'] = pd.to_datetime(df['datadate']).dt.tz_localize('US/Eastern')
+    # colculate market cap
+    df['market_cap'] = df['cshoc'] * df['prccd']
+
+    # TODO: create file for storing all updated data and append
+    # used once to write data
+    # df.to_hdf(FILEPATH + 'hdf/secd_full_9-11-2018_thru_11-30-2018.hdf', **hdf_settings)
+    # df.to_hdf(FILEPATH + 'hdf/secd_all_9-11-2018_onward.hdf', **hdf_settings_table)
+
+    # only keep common stocks (tpci = 0 and F)
+    common_securities_short = common_securities[['gvkey', 'iid']]
+    common_df = df.merge(common_securities_short, on=['gvkey', 'iid'])
+    common_df.drop('curcdd', inplace=True, axis=1)  # drop currency column
+    # write existing data as hdf table -- first time only
+    # current_df.to_hdf(secd_filename, **hdf_settings_table)
+
+    # appends to hdf store
+    common_df.to_hdf(secd_filename, **hdf_settings_table)
+
+    del current_df
+    del securities
+    del df
+    del common_df
+    del common_securities
+    gc.collect()
+
+
+
+if __name__ == "__main__":
+    db = make_db_connection()
+    update_small_tables()
