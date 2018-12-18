@@ -197,6 +197,7 @@ def download_common_stock_price_history(db, update=True, table='secd', library='
     """
     # filename from first iteration
     # secd_filename = FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf'
+    secd_filename = FILEPATH + 'hdf/secd.hdf'
     latest_date_filename = FILEPATH + 'latest_secd_datadate.txt'
     if not os.path.exists(latest_date_filename):
         # as of 12-13-2018, takes about 40gb to load full thing, around 32 to load datadate
@@ -231,6 +232,8 @@ def download_common_stock_price_history(db, update=True, table='secd', library='
     df = db.raw_sql(query_str.format(secd_cols, library, table, latest_date, todays_date), date_cols=['datadate'])
     # drop columns which seem to have weird dates -- don't need with date filter
     # df.drop(df[df['prccd'].apply(lambda x: x is None)].index, inplace=True)
+    # drop data with missing values
+    df.dropna(inplace=True)
     if not df.shape[0] > 0:
         print("no data to be found!")
         return
