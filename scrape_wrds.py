@@ -279,4 +279,5 @@ def hourly_update_check(db):
 
 if __name__ == "__main__":
     db = make_db_connection()
-    update_small_tables(db)
+    # update_small_tables(db)
+    hourly_update_check(db)
