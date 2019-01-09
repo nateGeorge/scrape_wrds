@@ -132,7 +132,7 @@ def download_small_table(db, table, library='comp', return_table=False):
         return df
 
 
-def get_stock_hist_df(gvkey, library='comp', tablename='secd'):
+def get_stock_hist_df(gvkey, library='comp', tablename='sec_dprc'):
     """
     gets historical daily data for a single stock in the db.
 
@@ -188,22 +188,30 @@ def load_secd(clean=False):
     return current_df
 
 
-def download_common_stock_price_history(db, update=True, table='secd', library='comp'):
+def download_common_stock_price_history(db, update=True, table='sec_dprc', library='comp'):
     """
     downloads data for all common stocks (US and ADR, or tpci column is 0 or F)
 
     if update=True, will get latest date in current df, then get everything after that
     and add to current df
+
+    sometimes seems like the comp.secd table is empty (it is supposed to be a 'merged' file)
+    so can use sec_dprc instead
+
+    compd library appears to be the same as comp
+
+    when querying 'security daily' data via web, it shows compd/secd
     """
     # filename from first iteration
     # secd_filename = FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf'
     secd_filename = FILEPATH + 'hdf/secd.hdf'
     latest_date_filename = FILEPATH + 'latest_secd_datadate.txt'
     if not os.path.exists(latest_date_filename):
+        current_df = load_secd()
         # as of 12-13-2018, takes about 40gb to load full thing, around 32 to load datadate
         # this is just for saving the latest date the first time
-        current_df = load_secd()
         latest_date = current_df['datadate'].max().strftime('%Y-%m-%d')#.strftime('%m/%d/%y')
+        del current_df
         with open(latest_date_filename, 'w') as  f:
             f.write(latest_date)
     else:
@@ -227,13 +235,14 @@ def download_common_stock_price_history(db, update=True, table='secd', library='
     # query_str = 'select count(gvkey) from comp.secd where datadate > \'{}\';'.format(latest_date)
     # db.raw_sql(query_str)
 
-    todays_date = pd.Timestamp.now(tz='US/Eastern')
+    todays_date = pd.Timestamp.now(tz='US/Eastern').strftime('%Y-%m-%d')
     query_str = 'select {} from {}.{} WHERE datadate > \'{}\' AND datadate <= \'{}\';'# and gvkey IN {};'
     df = db.raw_sql(query_str.format(secd_cols, library, table, latest_date, todays_date), date_cols=['datadate'])
+
     # drop columns which seem to have weird dates -- don't need with date filter
     # df.drop(df[df['prccd'].apply(lambda x: x is None)].index, inplace=True)
-    # drop data with missing values
-    df.dropna(inplace=True)
+    # drop data with missing values -- not a good idea, since some have one or 2 missing values
+    # df.dropna(inplace=True)
     if not df.shape[0] > 0:
         print("no data to be found!")
         return
@@ -258,11 +267,10 @@ def download_common_stock_price_history(db, update=True, table='secd', library='
     # appends to hdf store
     common_df.to_hdf(secd_filename, **hdf_settings_table)
     # update latest date file
-    latest_date = current_df['datadate'].max().strftime('%Y-%m-%d')#.strftime('%m/%d/%y')
+    latest_date = common_df['datadate'].max().strftime('%Y-%m-%d')#.strftime('%m/%d/%y')
     with open(latest_date_filename, 'w') as  f:
         f.write(latest_date)
 
-    del current_df
     del securities
     del df
     del common_df
@@ -276,6 +284,7 @@ def hourly_update_check(db):
     """
     while True:
         update_small_tables(db)
+        print('updating common stock prices')
         download_common_stock_price_history(db)
         time.sleep(3600)
 
