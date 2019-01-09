@@ -1,6 +1,32 @@
+import os
+import platform
+import datetime
+from pytz import timezone
+eastern = timezone('US/Eastern')
+
 import pandas as pd
 
 FILEPATH = '/home/nate/Dropbox/data/wrds/compustat_north_america/'
+
+
+def creation_date(path_to_file):
+    """
+    Try to get the date that a file was created, falling back to when it was
+    last modified if that isn't possible.
+    See http://stackoverflow.com/a/39501288/1709587 for explanation.
+
+    returns datetime object
+    """
+    if platform.system() == 'Windows':
+        return datetime.datetime.fromtimestamp(os.path.getctime(path_to_file))
+    else:
+        stat = os.stat(path_to_file)
+        try:
+            return datetime.datetime.fromtimestamp(stat.st_birthtime)
+        except AttributeError:
+            # We're probably on Linux. No easy way to get creation dates here,
+            # so we'll settle for when its content was last modified.
+            return datetime.datetime.fromtimestamp(stat.st_mtime)
 
 
 def load_small_table(table):
@@ -28,7 +54,8 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
 
     NASDAQ 100: Nasdaq 100
     """
-    idx_df = pd.read_hdf(FILEPATH + 'hdf/names_ix.hdf')
+    idx_names_filename = FILEPATH + 'hdf/names_ix.hdf'
+    idx_df = pd.read_hdf(idx_names_filename)
     gvkeyx = idx_df[idx_df['conm'] == index]['gvkeyx'].values
     if len(gvkeyx) > 1:
         print('more than 1 gvkeyx, exiting:')
@@ -37,7 +64,8 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
 
     gvkeyx = gvkeyx[0]
 
-    const_df = pd.read_hdf(FILEPATH + 'hdf/idxcst_his.hdf')
+    idx_hist_filename = FILEPATH + 'hdf/idxcst_his.hdf'
+    const_df = pd.read_hdf(idx_hist_filename)
 
     single_idx_df = const_df[const_df['gvkeyx'] == gvkeyx].copy()
     # combine with securities for ticker symbol
@@ -50,8 +78,10 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
     # create dataframe with list of constituents for each day
     start = single_idx_df['from'].min()
     # get today's date and reset hour, min, sec to 0s
-    # TODO: if not latest date; use date of datafile as latest
-    end = pd.Timestamp.today(tz='US/Eastern').replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None).tz_localize('US/Eastern')
+    # TODO: think about other ways to handle end date
+    latest_m_date = creation_date(idx_hist_filename)
+    today = pd.Timestamp.today(tz='US/Eastern').replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None).tz_localize('US/Eastern')
+    end = eastern.localize(latest_m_date)
 
     # replace NaT with tomorrow's date
     # gives copy warning but can't get rid of it...
