@@ -2,6 +2,12 @@ import os
 import platform
 import datetime
 from pytz import timezone
+from collections import OrderedDict
+
+import pandas as pd
+from tqdm import tqdm
+import pandas_market_calendars as mcal
+
 eastern = timezone('US/Eastern')
 
 import pandas as pd
@@ -150,7 +156,36 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
     return constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df
 
 
-def spy_20_smallest():
+def load_secd(clean=False):
+    secd_filename = FILEPATH + 'hdf/secd.hdf'
+    current_df = pd.read_hdf(secd_filename)
+    # need to drop messed up values if clean==True
+    if clean:
+        # drops lots of columns that shouldn't be dropped
+        # current_df.dropna(inplace=True)
+        # can use to check which entries are bad
+        # current_df[current_df['datadate'] >  pd.Timestamp.now(tz='US/Eastern')]
+        current_df.drop(current_df[current_df['datadate'] > '11/30/2018'].index, inplace=True)
+        # takes about 6 minutes to save
+        current_df.to_hdf(secd_filename, **hdf_settings_table)
+
+    return current_df
+
+
+def load_small_table(table):
+    """
+    loads the smaller tables, such as
+    funda, sec_shortint, names_ix, security, idxcst_his
+
+    args:
+    table -- string; name of table
+    df_filepath = FILEPATH + 'hdf/{}.hdf'.format(table)
+    """
+    df_filepath = FILEPATH + 'hdf/{}.hdf'.format(table)
+    return pd.read_hdf(df_filepath)
+
+
+def portfolio_strategy(index='S&P Smallcap 600 Index'):
     """
     tries to implement 20 smallest SPY strategy from paper (see beat_market_analysis github repo)
 
@@ -186,6 +221,12 @@ def spy_20_smallest():
     # get close price a year later, calculate overall return
     # repeat ad nauseum
 
+    # index constituents
+    constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df = get_historical_constituents_wrds_hdf(index=index)
+    # daily security for prices and market cap
+    current_sec_df = load_secd()
+    # annual security info for book value
+    funda = load_small_table('funda')
     # common_stocks = pd.read_hdf(FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf')
     sp600_stocks = pd.read_hdf(FILEPATH + 'hdf/sp600_daily_security_data_9-15-2018.hdf')
     sp600_stocks['market_cap'] = sp600_stocks['cshoc'] * sp600_stocks['prccd']
@@ -295,7 +336,3 @@ def spy_20_smallest():
 
 
     # TODO: is it different/better to rebalance on a certain day/month?
-
-
-most_constituents =
-df = pandas.DataFrame(constituent_companies)

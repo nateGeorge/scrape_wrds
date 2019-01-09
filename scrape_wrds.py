@@ -204,6 +204,7 @@ def download_common_stock_price_history(db, update=True, table='sec_dprc', libra
     """
     # filename from first iteration
     # secd_filename = FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf'
+    # TODO: save last number of rows in DB and check if any more
     secd_filename = FILEPATH + 'hdf/secd.hdf'
     latest_date_filename = FILEPATH + 'latest_secd_datadate.txt'
     if not os.path.exists(latest_date_filename):
