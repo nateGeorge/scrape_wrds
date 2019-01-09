@@ -121,23 +121,33 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
 
     max_constituents = max(lengths)
     # create dataframe with tickers as values, dates as rows
-    col_names = ['c_' + str(i) for i in range(max_constituents)]
-    df = pd.DataFrame(columns=col_names)
-    for d in tqdm(constituent_tickers.keys()):
-        ticker_data = constituent_tickers[d].values.tolist() + [None] * (max_constituents - constituent_tickers[d].shape[0])
-        df.append(pd.DataFrame(index=[d], data=[ticker_data], columns=col_names))
+    col_names = ['c_' + str(i) for i in range(1, max_constituents + 1)]
+    all_ticker_data = []
+    all_gvkey_data = []
+    all_iid_data = []
+    for d in tqdm(date_range):
+        date_str = d.strftime('%Y-%m-%d')
+        # extra columns to fill in blanks where constituents are less than the max
+        filler_cols = [None] * (max_constituents - constituent_tickers[date_str].shape[0])
+        all_ticker_data.append(constituent_tickers[date_str].values.tolist() + filler_cols)
+        all_gvkey_data.append(constituent_companies[date_str]['gvkey'].values.tolist() + filler_cols)
+        all_iid_data.append(constituent_companies[date_str]['iid'].values.tolist() + filler_cols)
+
+    ticker_df = pd.DataFrame(index=date_range, data=all_ticker_data, columns=col_names)
+    gvkey_df = pd.DataFrame(index=date_range, data=all_gvkey_data, columns=col_names)
+    iid_df = pd.DataFrame(index=date_range, data=all_iid_data, columns=col_names)
     # look at number of constituents as a histogram; mostly 600 but a few above and below
     # pd.value_counts(lengths)
     # plt.hist(lengths)
     # plt.show()
 
     # TODO:
-    # need to check that no tickers are used for multiple companies
+    # need to check that no tickers are used for multiple companies -- will have to combine gvkey and iid with tickers to check
 
     # get unique dates where changes were made
     unique_dates = set(single_idx_df['from'].unique()) | set(single_idx_df['thru'].unique())
 
-    return constituent_companies, unique_dates
+    return constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df
 
 
 def spy_20_smallest():
