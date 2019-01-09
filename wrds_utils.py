@@ -82,6 +82,12 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
     single_idx_df = single_idx_df.merge(sec_short, on=['gvkey', 'iid'])
 
     # create dataframe with list of constituents for each day
+    # confusing -- all the changes appear to be at 8pm EST or something like that
+    # so shift all days by one
+    # first need to convert from and thru columns to plain dates
+    # adding offset seems to remove tz, or maybe date does
+    single_idx_df['from'] = single_idx_df['from'].apply(lambda x: x.date() + pd.DateOffset(1)).dt.tz_localize('US/Eastern')
+    single_idx_df['thru'] = single_idx_df['thru'].apply(lambda x: x.date() + pd.DateOffset(1)).dt.tz_localize('US/Eastern')
     start = single_idx_df['from'].min()
     # get today's date and reset hour, min, sec to 0s
     # TODO: think about other ways to handle end date
@@ -227,17 +233,31 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     # get close price a year later, calculate overall return
     # repeat ad nauseum
 
+    ### load data
     # index constituents
     constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df = get_historical_constituents_wrds_hdf(index=index)
     # daily security for prices and market cap
     current_sec_df = load_secd()
     # annual security info for book value
     fundq = load_small_table('fundq')
+    # securities listing for delisted reasons (dlrsni)
+    securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
 
     # only keep companies that were/are in the index
     constituents = []
     for d in gvkey_df.index:
         constituents.extend(zip(gvkey_df.loc[d].values, iid_df.loc[d].values))
+
+    constituents = set(constituents)
+    # make column with tuple of gvkey and iid
+    current_sec_df['gvkey_iid'] = list(zip(current_sec_df['gvkey'], current_sec_df['iid']))
+    fundq['gvkey_iid'] = list(zip(fundq['gvkey'], fundq['iid']))
+    securities['gvkey_iid'] = list(zip(securities['gvkey'], securities['iid']))
+    sec_df_const = current_sec_df[current_sec_df['gvkey_iid'].isin(constituents)]
+    fundq_const = fundq[fundq['gvkey_iid'].isin(constituents)]
+    securities_const = securities[securities['gvkey_iid'].isin(constituents)]
+    # explore the delisted reasons
+    # securities_const['dlrsni'].unique()
 
 
     def get_p_b_ratio(fundq, sec_df, date, security_list):
@@ -245,8 +265,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
         # calculates p/b ratio for daily security data
 
 
-    # securities listing for delisted reasons (dlrsni)
-    securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
+
 
     # start at earliest date by default
     if start_date is None:
