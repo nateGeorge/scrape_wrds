@@ -153,6 +153,31 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
 def spy_20_smallest():
     """
     tries to implement 20 smallest SPY strategy from paper (see beat_market_analysis github repo)
+
+    from the paper, they have two filters for 'size' and 'P/B'
+    assuming the size is a minimum size, and P/B is a maximum
+
+    book value per share is BKVLPS from funda table -- to get P/B, take prccd/bkvlps
+    try P/B under 1 and 3
+
+    steps:
+    1. get historical constituents for index
+    2. load historical daily price data
+    3. get first set of holdings from initialization date
+    4. go thru day-by-day getting prices from gvkey/iid; if constituent stops
+        existing (e.g. buyout, bankrupt, etc), then sell at last price and buy
+        new holding after optional delay
+    5.
+
+    . make df with daily close price for each security using gvkey and iid dfs
+    .
+
+    specify:
+    - index name
+    - initialization date
+    - rebalance period
+    - maybe delay after constituent leaves before entering again
+    - option for selling if constituent leaves index due to poor performance
     """
     # merge historical constituents for sp600 with daily price, eps, and market cap data
     # see what returns are on yearly rebalance for 20 smallest marketcap stocks
