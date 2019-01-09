@@ -185,15 +185,20 @@ def load_small_table(table):
     return pd.read_hdf(df_filepath)
 
 
-def portfolio_strategy(index='S&P Smallcap 600 Index'):
+def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     """
     tries to implement 20 smallest SPY strategy from paper (see beat_market_analysis github repo)
 
     from the paper, they have two filters for 'size' and 'P/B'
     assuming the size is a minimum size, and P/B is a maximum
 
+    book value -- use CEQQ from fundq, and cshoq (common shares outstanding) -- ceqq/cshoq
+    maybe use rdq as date? or fdateq (final date) -- investigate more
+    http://financeformulas.net/Book-Value-per-Share.html
     book value per share is BKVLPS from funda table -- to get P/B, take prccd/bkvlps
     try P/B under 1 and 3
+    or between 4.5 and 5.0 ?
+    https://investinganswers.com/articles/simple-method-calculating-book-value
 
     steps:
     1. get historical constituents for index
@@ -227,6 +232,29 @@ def portfolio_strategy(index='S&P Smallcap 600 Index'):
     current_sec_df = load_secd()
     # annual security info for book value
     funda = load_small_table('funda')
+    def get_p_b_ratio(funda, sec_df):
+        # calculates p/b ratio for daily security data
+        for y in
+
+    # securities listing for delisted reasons (dlrsni)
+    securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
+
+    # start at earliest date by default
+    if start_date is None:
+        start_date = min(unique_dates)
+
+    def filter_securities(book_val_max=3, min_size=None, n_smallest=20):
+        """
+        Filters securities by a set of criterion.
+        This first gets most recent book value, then filters by book val
+        under the book_val_max.
+        Then filters by size: minimum size of min_size (based on market cap).
+        Lastly, gets the n_smallest smallest companies by market cap.
+        """
+
+    # get initial portfolio holdings
+    holdings =
+
     # common_stocks = pd.read_hdf(FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf')
     sp600_stocks = pd.read_hdf(FILEPATH + 'hdf/sp600_daily_security_data_9-15-2018.hdf')
     sp600_stocks['market_cap'] = sp600_stocks['cshoc'] * sp600_stocks['prccd']

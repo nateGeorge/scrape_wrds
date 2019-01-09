@@ -166,7 +166,7 @@ def update_small_tables(db):
     Keyword arguments:
     db -- connection to wrds db, from make_db_connection() function
     """
-    short_tables = ['idxcst_his', 'security', 'names_ix', 'sec_shortint', 'funda']
+    short_tables = ['idxcst_his', 'security', 'names_ix', 'sec_shortint', 'funda', 'fundq']
     for t in short_tables:
         print(t)
         download_small_table(db=db, table=t)
