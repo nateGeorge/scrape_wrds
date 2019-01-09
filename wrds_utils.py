@@ -98,7 +98,7 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
     # date_range = mcal.date_range(start=start, end=end)
     # gets only dates valid for NYSE -- doesn't seem to match historical data
     if date_range is None:
-        date_range = nyse.valid_days(start_date=start.date(), end_date=end.date()).tz_convert('US/Eastern')
+        date_range = nyse.valid_days(start_date=start.date(), end_date=end.date(), tz='US/Eastern')
     else:
         # cutoff at earliest date for index
         date_range = np.array(sorted(date_range))
@@ -192,7 +192,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     from the paper, they have two filters for 'size' and 'P/B'
     assuming the size is a minimum size, and P/B is a maximum
 
-    book value -- use CEQQ from fundq, and cshoq (common shares outstanding) -- ceqq/cshoq
+    book value -- use CEQQ (total common equity) from fundq, and cshoq (common shares outstanding) -- ceqq/cshoq
     maybe use rdq as date? or fdateq (final date) -- investigate more
     possibly also use these definitions: http://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/variable_definitions.html
     http://financeformulas.net/Book-Value-per-Share.html
@@ -232,10 +232,18 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     # daily security for prices and market cap
     current_sec_df = load_secd()
     # annual security info for book value
-    funda = load_small_table('funda')
-    def get_p_b_ratio(funda, sec_df):
+    fundq = load_small_table('fundq')
+
+    # only keep companies that were/are in the index
+    constituents = []
+    for d in gvkey_df.index:
+        constituents.extend(zip(gvkey_df.loc[d].values, iid_df.loc[d].values))
+
+
+    def get_p_b_ratio(fundq, sec_df, date, security_list):
+        pass
         # calculates p/b ratio for daily security data
-        for y in
+
 
     # securities listing for delisted reasons (dlrsni)
     securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
@@ -254,7 +262,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
         """
 
     # get initial portfolio holdings
-    holdings =
+    holdings = []
 
     # common_stocks = pd.read_hdf(FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf')
     sp600_stocks = pd.read_hdf(FILEPATH + 'hdf/sp600_daily_security_data_9-15-2018.hdf')
