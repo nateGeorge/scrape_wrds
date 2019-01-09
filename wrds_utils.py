@@ -194,6 +194,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
 
     book value -- use CEQQ from fundq, and cshoq (common shares outstanding) -- ceqq/cshoq
     maybe use rdq as date? or fdateq (final date) -- investigate more
+    possibly also use these definitions: http://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/variable_definitions.html
     http://financeformulas.net/Book-Value-per-Share.html
     book value per share is BKVLPS from funda table -- to get P/B, take prccd/bkvlps
     try P/B under 1 and 3
