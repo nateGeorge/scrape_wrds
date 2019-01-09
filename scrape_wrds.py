@@ -278,6 +278,17 @@ def download_common_stock_price_history(db, update=True, table='sec_dprc', libra
     gc.collect()
 
 
+def drop_secd_dupes():
+    """
+    drops duplicates for daily security data
+    """
+    secd_filename = FILEPATH + 'hdf/secd.hdf'
+    current_df = load_secd()
+    current_df.drop_duplicates(inplace=True)
+    os.remove(secd_filename)  # need to delete, or it will append
+    current_df.to_hdf(secd_filename, **hdf_settings_table)
+
+
 def hourly_update_check(db):
     """
     checks for updated data once per hour
