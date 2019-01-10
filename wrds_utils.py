@@ -4,6 +4,7 @@ import datetime
 from pytz import timezone
 from collections import OrderedDict
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import pandas_market_calendars as mcal
@@ -191,6 +192,8 @@ def load_small_table(table):
     return pd.read_hdf(df_filepath)
 
 
+# TODO: function for merging price data with book value for P/B values of any stock
+
 def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     """
     tries to implement 20 smallest SPY strategy from paper (see beat_market_analysis github repo)
@@ -237,6 +240,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     ### load data
     # index constituents
     constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df = get_historical_constituents_wrds_hdf(index=index)
+    unique_dates_dates = [d.date() for d in unique_dates]
     # daily security for prices and market cap
     current_sec_df = load_secd()
     # annual security info for book value
@@ -319,16 +323,22 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
 
     full_df = pd.concat(all_merged)
     full_df['pb_ratio'] = full_df['market_cap'] / full_df['ceqq']
+    full_df['pb_ratio'] = full_df['pb_ratio'].replace(np.inf, 1.111e+11)
+    full_df['pb_ratio'].hist(log=True, bins=50); plt.show()
+    full_df[(full_df['pb_ratio'] < 10) & (full_df['pb_ratio'] > -10)]['pb_ratio'].hist(bins=50); plt.show()
 
-
-
-
-
-
+    # takes a while...
+    full_df['datadate'] = full_df['datadate'].dt.date
 
     # start at earliest date by default
     if start_date is None:
-        start_date = min(unique_dates)
+        start_date = min(unique_dates).date()
+
+    # trimmed_df = full_df[full_df['datadate'] >= start_date]
+    # earliest market cap seems to be 1998-4-1
+    trimmed_df = full_df[full_df['datadate'] >= pd.to_datetime('2000-01-01').date()]
+
+
 
     def filter_securities(book_val_max=3, min_size=None, n_smallest=20):
         """
@@ -338,13 +348,71 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
         Then filters by size: minimum size of min_size (based on market cap).
         Lastly, gets the n_smallest smallest companies by market cap.
         """
+        pass
 
+    ## first try with just 20 smallest (greater than 17M mkt cap)
     # get initial portfolio holdings
+    n_smallest = 20
     holdings = []
+    holding_prices = {}
+    first = True
+    for d in tqdm(sorted(trimmed_df['datadate'].unique())):
+        # set first holdings first time around
+        if first:
+            current = trimmed_df[trimmed_df['datadate'] == d]
+            current_filt = current[current['market_cap'] >= 17e6].copy()
+            # take n smallest
+            current_filt.sort_values(by='market_cap', inplace=True)
+            # holding_prices.append(current_filt.iloc[:n_smallest]['prccd'].values.tolist())
+            holdings.append(current_filt.iloc[:n_smallest]['gvkey_iid'].values.tolist())
+            first = False
+            current_year = r['datadate'].year
+            current_holdings = holdings[-1]
+            for c in current_holdings:
+                holding_prices[c] = [current_filt[current_filt['gvkey_iid'] == c]['prccd'].values[0]]
 
-    # common_stocks = pd.read_hdf(FILEPATH + 'hdf/common_us_stocks_daily_9-12-2018.hdf')
-    sp600_stocks = pd.read_hdf(FILEPATH + 'hdf/sp600_daily_security_data_9-15-2018.hdf')
-    sp600_stocks['market_cap'] = sp600_stocks['cshoc'] * sp600_stocks['prccd']
+            continue
+        if r['datadate'].year == current_year:
+            # append prices; TODO: if security no longer in index replace with new one
+            current = trimmed_df[trimmed_df['datadate'] == d]
+            for c in current_holdings:
+                if c in constituent_companies[d.strftime('%Y-%m-%d')]:
+                    holding_prices[c].append(current[current['gvkey_iid'] == c]['prccd'].values[0])
+
+            continue
+        else:
+            # rebalance
+            current = trimmed_df[trimmed_df['datadate'] == d]
+            current_filt = current[current['market_cap'] >= 17e6].copy()
+            # take n smallest
+            current_filt.sort_values(by='market_cap', inplace=True)
+            holding_prices.append(current_filt.iloc[:n_smallest]['prccd'])
+            holdings.append(current_filt.iloc[:n_smallest]['gvkey_iid'])
+            current_year = r['datadate'].year
+            current_holdings = holdings[-1]
+
+
+        if r['datadate'] not in unique_dates_dates:
+            continue
+        else:
+            # see if any current holdings no longer in index
+
+
+        # current = trimmed_df[trimmed_df['datadate'] == d]
+        # filter by market cap >= 17M
+        # current_filt = current[current['market_cap'] >= 17e6].copy()
+        current_filt = r[r['market_cap'] >= 17e6].copy()
+        # take n smallest
+        current_filt.sort_values(by='market_cap', inplace=True)
+        holdings.append(current_filt.iloc[:n_smallest]['prccd'])
+
+
+
+
+
+
+    ### old code
+
     # sp600 index data starts in 1994
     years = sp600_stocks['datadate'][sp600_stocks['datadate'].dt.year >= 1994].dt.year.unique()
 
