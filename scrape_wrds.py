@@ -322,8 +322,9 @@ def hourly_update_check(db):
     """
     while True:
         update_small_tables(db)
-        print('updating common stock prices')
-        download_common_stock_price_history(db)
+        # TODO: fix common stock download
+        # print('updating common stock prices')
+        # download_common_stock_price_history(db)
         time.sleep(3600)
 
 
