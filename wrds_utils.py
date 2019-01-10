@@ -1,6 +1,7 @@
 import os
 import platform
 import datetime
+import pickle as pk
 from pytz import timezone
 from collections import OrderedDict
 
@@ -91,10 +92,12 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
     single_idx_df['thru'] = single_idx_df['thru'].apply(lambda x: x.date() + pd.DateOffset(1)).dt.tz_localize('US/Eastern')
     start = single_idx_df['from'].min()
     # get today's date and reset hour, min, sec to 0s
-    # TODO: think about other ways to handle end date
-    latest_m_date = creation_date(idx_hist_filename)
-    today = pd.Timestamp.today(tz='US/Eastern').replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None).tz_localize('US/Eastern')
-    end = eastern.localize(latest_m_date)
+    # latest_m_date = creation_date(idx_hist_filename)
+    # today = pd.Timestamp.today(tz='US/Eastern').replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None).tz_localize('US/Eastern')
+    # df with last updated dates for tables
+    last_updated_fp = FILEPATH + 'last_updated_dates.pk'
+    last_updated = pk.load(open(last_updated_fp, 'rb'))
+    end = last_updated['idxcst_his']
 
     # replace NaT with tomorrow's date
     # gives copy warning but can't get rid of it...
@@ -245,6 +248,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     # current_sec_df = load_secd()  # doesn't contain all securities for some reason
     if index == 'S&P Smallcap 600 Index':
         index_name = 'sp600'
+
     current_sec_df = pd.read_hdf(FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf')
     # annual security info for book value
     fundq = load_small_table('fundq')
@@ -443,135 +447,3 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
 
     holding_prices_df = pd.DataFrame(index=sorted(trimmed_df['datadate'].unique()), data=holding_prices)
     # evaluate returns
-
-
-
-
-
-        if r['datadate'] not in unique_dates_dates:
-            continue
-        else:
-            # see if any current holdings no longer in index
-
-
-        # current = trimmed_df[trimmed_df['datadate'] == d]
-        # filter by market cap >= 17M
-        # current_filt = current[current['market_cap'] >= 17e6].copy()
-        current_filt = r[r['market_cap'] >= 17e6].copy()
-        # take n smallest
-        current_filt.sort_values(by='market_cap', inplace=True)
-        holdings.append(current_filt.iloc[:n_smallest]['prccd'])
-
-
-
-
-
-
-    ### old code
-
-    # sp600 index data starts in 1994
-    years = sp600_stocks['datadate'][sp600_stocks['datadate'].dt.year >= 1994].dt.year.unique()
-
-    first_days = []
-    sp600_dates = sorted(sp600_stocks['datadate'].unique())
-    constituent_companies, unique_dates = get_historical_constituents_wrds_hdf(sp600_dates)
-
-    for y in tqdm(years[1:]):  # first year starts on sept
-        year_dates = [d for d in sp600_dates if d.year == y]
-        first_days.append(min(year_dates))
-
-    # '1998-01-02' giving key error in constituent_companies
-    price_chg_1y = OrderedDict()
-    smallest_20 = OrderedDict()
-    smallest_20_1y_chg = OrderedDict()
-
-    # TODO: get latest price if stopped trading during the year; figure out mergers/buyouts, etc
-    # TODO: get tickers
-    for start, end in tqdm(zip(first_days[4:-1], first_days[5:])):  # 2000 onward is [5:] ; market cap not available until 1999 for these stocks
-        datestr = start.strftime('%Y-%m-%d')
-        constituents = constituent_companies[datestr]
-        current_daily_data = sp600_stocks[sp600_stocks['datadate'] == start]
-        one_year_daily_data = sp600_stocks[sp600_stocks['datadate'] == end]
-        # TODO: figure out why a few hundred are missing in the daily data from the constituent list
-        # AIR ('001004') is not in common_stocks, figure out why
-        full_const = constituents.merge(current_daily_data, on=['gvkey', 'iid'])
-        full_const_1y = constituents.merge(one_year_daily_data, on=['gvkey', 'iid'])
-        # get adjusted closes for constituents now and 1y in future
-        const_current_price = full_const[['gvkey', 'iid', 'ajexdi', 'prccd']]
-        const_future_price = full_const_1y[['gvkey', 'iid', 'ajexdi', 'prccd']]
-        const_current_price['adj_close'] = const_current_price['prccd'] / const_current_price['ajexdi']
-        const_future_price['adj_close_1y_future'] = const_future_price['prccd'] / const_future_price['ajexdi']
-        const_current_price.drop(['prccd', 'ajexdi'], inplace=True, axis=1)
-        const_future_price.drop(['prccd', 'ajexdi'], inplace=True, axis=1)
-        # get % price change for each
-        const_price_change = const_current_price.merge(const_future_price, on=['gvkey', 'iid']).drop_duplicates()
-        const_price_change['1y_pct_chg'] = (const_price_change['adj_close_1y_future'] - const_price_change['adj_close']) / const_price_change['adj_close']
-        price_chg_1y[datestr] = const_price_change
-
-        bottom_20 = full_const.sort_values(by='market_cap', ascending=True).iloc[:20]
-        smallest_20[datestr] = bottom_20
-        bottom_20_price_chg = const_price_change[const_price_change['gvkey'].isin(set(bottom_20['gvkey']))]
-        bottom_20_price_chg.reset_index(inplace=True, drop=True)
-        if bottom_20_price_chg.shape[0] == 0:  # everything was acquired/bankrupt, etc, like in 2006 and 07 I think
-            last_idx = 0
-        else:
-            last_idx = bottom_20_price_chg.index[-1]
-
-        # get stocks missing from price changes, and use last price to get price change
-        missing_gvkeys = list(set(bottom_20['gvkey']).difference(set(bottom_20_price_chg['gvkey'])))
-        for m in missing_gvkeys:
-            last_idx += 1  # make an index for creating dataframe with last price, so we can append it to the bottom_20_price_chg df
-            price_chg_dict = {}
-            iid = bottom_20[bottom_20['gvkey'] == m]['iid'].values
-            if len(iid) > 1:
-                print('shit, iid length >1')
-            iid = iid[0]
-            last_data = sp600_stocks[(sp600_stocks['gvkey'] == m) & (sp600_stocks['iid'] == iid)][['prccd', 'ajexdi']].dropna().iloc[-1]
-            last_price = last_data['prccd'] / last_data['ajexdi']
-            price_chg_dict['gvkey'] = m
-            price_chg_dict['iid'] = iid
-            # TODO: check this isn't more than one result, may need to filter by iid too
-            price_chg_dict['adj_close'] = const_current_price[const_current_price['gvkey'] == m]['adj_close'].values[0]
-            price_chg_dict['adj_close_1y_future'] = last_price
-            price_chg_dict['1y_pct_chg'] = (last_price - price_chg_dict['adj_close']) / price_chg_dict['adj_close']
-            bottom_20_price_chg = bottom_20_price_chg.append(pd.DataFrame(price_chg_dict, index=[last_idx])[bottom_20_price_chg.columns.tolist()])  # TODO: check if append works with out-of-order columns
-
-
-        # TODO: find next stock in bottom 20 at time the other was put out, and see how it does
-
-        smallest_20_1y_chg[datestr] = bottom_20_price_chg
-        price_chg_1y[datestr] = bottom_20_price_chg['1y_pct_chg'].sum() / 20  # assume others not in here are 0 for now
-        # get the overall price changes each year
-
-
-    annualized_return = (np.prod([1 + p for p in price_chg_1y.values()]) ** (1/len(price_chg_1y.values())) - 1) * 100
-    plt.plot(price_chg_1y.keys(), price_chg_1y.values())
-    plt.scatter(price_chg_1y.keys(), price_chg_1y.values())
-    plt.xticks(rotation=90)
-    plt.title('bottom 20 SP600 stocks yearly returns, annualized return = ' + str(round(annualized_return, 1)))
-    plt.ylabel('% return per year')
-    plt.tight_layout()
-    plt.show()
-
-    # to get tickers
-    smallest_20_1y_chg['2017-01-03'].merge(securities[['gvkey', 'iid', 'tic']], on=['gvkey', 'iid'])
-    bottom_20.merge(securities[['gvkey', 'iid', 'tic']], on=['gvkey', 'iid'])
-
-
-    securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
-
-    bottom_20_tickers = bottom_20.merge(securities, on=['gvkey', 'iid'])
-
-
-    # TODO: deal with acquisitions: dlrsni 01 is acquired, 02 is bankrupt, 03 is liquidated
-    # https://wrds-web.wharton.upenn.edu/wrds/support/Data/_001Manuals%20and%20Overviews/_001Compustat/_001North%20America%20-%20Global%20-%20Bank/_000dataguide/index.cfm
-
-    # get gvkeys missing in price changes and check for bankruptcy or acquisitions, etc
-    missing_gvkeys = list(set(bottom_20['gvkey']).difference(set(bottom_20_price_chg['gvkey'])))
-    missing = bottom_20[bottom_20['gvkey'].isin(missing_gvkeys)]
-    missing_merged = missing.merge(securities[['gvkey', 'iid', 'dlrsni', 'tic']])
-    missing_merged[['tic', 'dlrsni']]
-    securities[securities['gvkey'] == '010565']
-
-
-    # TODO: is it different/better to rebalance on a certain day/month?

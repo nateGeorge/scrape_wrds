@@ -2,6 +2,7 @@ import os
 import gc
 import time
 import datetime
+import pickle as pk
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -113,7 +114,16 @@ def download_small_table(db, table, library='comp', return_table=False):
     """
     df_filepath = FILEPATH + 'hdf/{}.hdf'.format(table)
     up_to_date, nrows = check_if_up_to_date(db, df_filepath, table=table, library=library)
+    last_updated_fp = FILEPATH + 'last_updated_dates.pk'
+    if os.path.exists(last_updated_fp):
+        updated_record = pk.load(open(last_updated_fp, 'rb'))
+    else:
+        updated_record = {}
+
+    updated_record[table] = pd.Timestamp.today(tz='US/Eastern')
+
     if up_to_date:
+        pk.dump(updated_record, open(last_updated_fp, 'wb'), protocol=-1)
         if return_table:
             return None
         return
@@ -128,6 +138,7 @@ def download_small_table(db, table, library='comp', return_table=False):
 
 
     df.to_hdf(df_filepath, **hdf_settings)
+    pk.dump(updated_record, open(last_updated_fp, 'wb'), protocol=-1)
     if return_table:
         return df
 
