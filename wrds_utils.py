@@ -200,6 +200,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
 
     book value -- use CEQQ (total common equity) from fundq, and cshoq (common shares outstanding) -- ceqq/cshoq
     maybe use rdq as date? or fdateq (final date) -- investigate more
+    - rdq is earliest public release date, seems to correspond with SEC filing date
     possibly also use these definitions: http://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/variable_definitions.html
     http://financeformulas.net/Book-Value-per-Share.html
     book value per share is BKVLPS from funda table -- to get P/B, take prccd/bkvlps
@@ -253,16 +254,74 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     current_sec_df['gvkey_iid'] = list(zip(current_sec_df['gvkey'], current_sec_df['iid']))
     fundq['gvkey_iid'] = list(zip(fundq['gvkey'], fundq['iid']))
     securities['gvkey_iid'] = list(zip(securities['gvkey'], securities['iid']))
-    sec_df_const = current_sec_df[current_sec_df['gvkey_iid'].isin(constituents)]
-    fundq_const = fundq[fundq['gvkey_iid'].isin(constituents)]
-    securities_const = securities[securities['gvkey_iid'].isin(constituents)]
+    sec_df_const = current_sec_df[current_sec_df['gvkey_iid'].isin(constituents)].copy()
+    fundq_const = fundq[fundq['gvkey_iid'].isin(constituents)].copy()
+    # seems to be a lot of NA values and duplicate rows
+    # TODO: check that no quarters are missing for companies after dropping nas
+    fundq_const.dropna(subset=['ceqq', 'rdq'], inplace=True)
+    # add one day to rdq to be safe
+    fundq_const['rdq'] = pd.to_datetime(fundq_const['rdq']).apply(lambda x: x + pd.DateOffset(1)).dt.tz_localize('US/Eastern')
+    # EDA
+    # fundq_const[['cshoq', 'ceqq', 'rdq', 'fdateq', 'tic', 'gvkey', 'iid', 'cik']
+    securities_const = securities[securities['gvkey_iid'].isin(constituents)].copy()
     # explore the delisted reasons
     # securities_const['dlrsni'].unique()
+    # securities_const['dlrsni'].value_counts(dropna=False)
+    # 01 Acquisition or merger
+    # 02 Bankruptcy
+    # 03 Liquidation
+    # 04 Reverse acquisition (1983 forward)
+    # 09 Now a private company
+    # 10 Other (no longer files with SEC among other reasons)
+    # 20 Other (issue-level activity; company remains active on the file)
+
+    ### EDA on bankruptcy
+    # look at a security that went bankrupt to see what price did
+    # securities_const[securities_const['dlrsni'] == '02']
+    # check out BLGM (024415, 01) stock
+    # joined index 1994-10-01, left 2008-08-19
+    # huge spike and decrease around 2005-08
+    # hopefully would've rebalanced out in mid 2000s
+    # import matplotlib.pyplot as plt
+    # sec_df_const.set_index('datadate', inplace=True)
+    # sec_df_const[sec_df_const['gvkey_iid'] == ('024415', '01')]['prccd'].plot(); plt.show()
+
+    # doesn't quite work...so close
+    """
+    fundq_const.sort_values(by=['gvkey_iid', 'rdq'], inplace=True)
+    sec_df_const.sort_values(by=['gvkey_iid', 'datadate'], inplace=True)
+
+    sec_df_const_pb = pd.merge_asof(sec_df_const,
+                                    fundq_const[['ceqq', 'rdq', 'gvkey_iid']],
+                                    left_on='datadate',
+                                    right_on='rdq',
+                                    by='gvkey_iid',
+                                    direction='backward')
+    """
+
+    # takes 12.5 minutes...yikes
+    all_merged = []
+    not_in_fundq = []
+    for gvkey_iid in tqdm(sec_df_const['gvkey_iid'].unique().tolist()):
+        fundq_sm = fundq_const[fundq_const['gvkey_iid'] == gvkey_iid][['rdq', 'ceqq']].sort_values(by='rdq')
+        if fundq_sm.shape[0] == 0:
+            print(gvkey_iid)
+            not_in_fundq.append(gvkey_iid)
+            continue
+
+        sec_df_const_sm = sec_df_const[sec_df_const['gvkey_iid'] == gvkey_iid].sort_values(by='datadate')
+        merged = pd.merge_asof(sec_df_const_sm,
+                                fundq_sm,
+                                left_on='datadate',
+                                right_on='rdq',
+                                direction='backward')
+        all_merged.append(merged)
+
+    full_df = pd.concat(all_merged)
+    full_df['pb_ratio'] = full_df['market_cap'] / full_df['ceqq']
 
 
-    def get_p_b_ratio(fundq, sec_df, date, security_list):
-        pass
-        # calculates p/b ratio for daily security data
+
 
 
 
