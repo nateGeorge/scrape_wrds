@@ -242,7 +242,10 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df = get_historical_constituents_wrds_hdf(index=index)
     unique_dates_dates = [d.date() for d in unique_dates]
     # daily security for prices and market cap
-    current_sec_df = load_secd()
+    # current_sec_df = load_secd()  # doesn't contain all securities for some reason
+    if index == 'S&P Smallcap 600 Index':
+        index_name = 'sp600'
+    current_sec_df = pd.read_hdf(FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf')
     # annual security info for book value
     fundq = load_small_table('fundq')
     # securities listing for delisted reasons (dlrsni)
@@ -254,11 +257,17 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
         constituents.extend(zip(gvkey_df.loc[d].values, iid_df.loc[d].values))
 
     constituents = set(constituents)
+    constituent_list = list(constituents)
     # make column with tuple of gvkey and iid
     current_sec_df['gvkey_iid'] = list(zip(current_sec_df['gvkey'], current_sec_df['iid']))
     fundq['gvkey_iid'] = list(zip(fundq['gvkey'], fundq['iid']))
     securities['gvkey_iid'] = list(zip(securities['gvkey'], securities['iid']))
-    sec_df_const = current_sec_df[current_sec_df['gvkey_iid'].isin(constituents)].copy()
+    # can uncomment this when fix the big secd df
+    # sec_df_const = current_sec_df[current_sec_df['gvkey_iid'].isin(constituents)].copy()
+    sec_df_const = current_sec_df
+    if 'market_cap' not in sec_df_const.columns:
+        sec_df_const['market_cap'] = sec_df_const['cshoc'] * sec_df_const['prccd']
+
     fundq_const = fundq[fundq['gvkey_iid'].isin(constituents)].copy()
     # seems to be a lot of NA values and duplicate rows
     # TODO: check that no quarters are missing for companies after dropping nas
@@ -303,26 +312,34 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
                                     direction='backward')
     """
 
-    # takes 12.5 minutes...yikes
+    ### adds quarterly stockholders' equity to daily price data
+    # with sp600, took about 32 mins (about 2150 constituents)
     all_merged = []
     not_in_fundq = []
+    nat = np.datetime64('NaT')
     for gvkey_iid in tqdm(sec_df_const['gvkey_iid'].unique().tolist()):
         fundq_sm = fundq_const[fundq_const['gvkey_iid'] == gvkey_iid][['rdq', 'ceqq']].sort_values(by='rdq')
+        sec_df_const_sm = sec_df_const[sec_df_const['gvkey_iid'] == gvkey_iid].sort_values(by='datadate')
         if fundq_sm.shape[0] == 0:
             print(gvkey_iid)
             not_in_fundq.append(gvkey_iid)
-            continue
+            # fill in np.nan and np.nat for rdq and ceqq
+            merged = sec_df_const_sm.copy()
+            merged['rdq'] = nat
+            merged['rqd'] = merged['rdq'].dt.tz_localize('US/Eastern')
+            merged['ceqq'] = np.nan
+        else:
+            merged = pd.merge_asof(sec_df_const_sm,
+                                    fundq_sm,
+                                    left_on='datadate',
+                                    right_on='rdq',
+                                    direction='backward')
 
-        sec_df_const_sm = sec_df_const[sec_df_const['gvkey_iid'] == gvkey_iid].sort_values(by='datadate')
-        merged = pd.merge_asof(sec_df_const_sm,
-                                fundq_sm,
-                                left_on='datadate',
-                                right_on='rdq',
-                                direction='backward')
         all_merged.append(merged)
 
     full_df = pd.concat(all_merged)
     full_df['pb_ratio'] = full_df['market_cap'] / full_df['ceqq']
+    # replace with what was largest value for sp600
     full_df['pb_ratio'] = full_df['pb_ratio'].replace(np.inf, 1.111e+11)
     full_df['pb_ratio'].hist(log=True, bins=50); plt.show()
     full_df[(full_df['pb_ratio'] < 10) & (full_df['pb_ratio'] > -10)]['pb_ratio'].hist(bins=50); plt.show()
@@ -336,7 +353,10 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
 
     # trimmed_df = full_df[full_df['datadate'] >= start_date]
     # earliest market cap seems to be 1998-4-1
-    trimmed_df = full_df[full_df['datadate'] >= pd.to_datetime('2000-01-01').date()]
+    # just start at 2k like the paper
+    trimmed_df = full_df[full_df['datadate'] >= pd.to_datetime('2000-01-01').date()].copy()
+    # for testing
+    trimmed_df = trimmed_df[trimmed_df['datadate'] <= pd.to_datetime('2003-01-01').date()].copy()
 
 
 
@@ -350,35 +370,57 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
         """
         pass
 
+    # need a constituent companies dict that can match the tuple format
+    const_comp_tuples = {}
+    for d in constituent_companies.keys():
+        const_comp_tuples[d] = list(zip(constituent_companies[d]['gvkey'], constituent_companies[d]['iid']))
+
+
     ## first try with just 20 smallest (greater than 17M mkt cap)
     # get initial portfolio holdings
     n_smallest = 20
     holdings = []
-    holding_prices = {}
+    holding_prices = []
     first = True
+
+
     for d in tqdm(sorted(trimmed_df['datadate'].unique())):
         # set first holdings first time around
         if first:
-            current = trimmed_df[trimmed_df['datadate'] == d]
+            # get prices from that date
+            current = trimmed_df[trimmed_df['datadate'] == d].copy()
+            # only keep securities currently in the index
+            current = current[current['gvkey_iid'].isin(set(const_comp_tuples[d.strftime('%Y-%m-%d')]))].copy()
             current_filt = current[current['market_cap'] >= 17e6].copy()
             # take n smallest
             current_filt.sort_values(by='market_cap', inplace=True)
             # holding_prices.append(current_filt.iloc[:n_smallest]['prccd'].values.tolist())
-            holdings.append(current_filt.iloc[:n_smallest]['gvkey_iid'].values.tolist())
-            first = False
+            hold = current_filt.iloc[:n_smallest]['gvkey_iid'].values.tolist()
+            holdings.append(hold)
             current_year = r['datadate'].year
-            current_holdings = holdings[-1]
+            current_holdings = hold
+            hold_price_temp = []
             for c in current_holdings:
-                holding_prices[c] = [current_filt[current_filt['gvkey_iid'] == c]['prccd'].values[0]]
+                one_security = current_filt[current_filt['gvkey_iid'] == c]
+                hold_price_temp.append(one_security['prccd'].values[0])
 
+            holding_prices.append(hold_price_temp)
+
+            first = False
             continue
+
         if r['datadate'].year == current_year:
             # append prices; TODO: if security no longer in index replace with new one
             current = trimmed_df[trimmed_df['datadate'] == d]
+            hold_price_temp = []
             for c in current_holdings:
-                if c in constituent_companies[d.strftime('%Y-%m-%d')]:
-                    holding_prices[c].append(current[current['gvkey_iid'] == c]['prccd'].values[0])
+                if c in const_comp_tuples[d.strftime('%Y-%m-%d')]:
+                    one_security = current_filt[current_filt['gvkey_iid'] == c]
+                    hold_price_temp.append(one_security['prccd'].values[0])
+                else:
+                    hold_price_temp.append(np.nan)
 
+            holding_prices.append(hold_price_temp)
             continue
         else:
             # rebalance
@@ -386,10 +428,24 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
             current_filt = current[current['market_cap'] >= 17e6].copy()
             # take n smallest
             current_filt.sort_values(by='market_cap', inplace=True)
-            holding_prices.append(current_filt.iloc[:n_smallest]['prccd'])
-            holdings.append(current_filt.iloc[:n_smallest]['gvkey_iid'])
+            # holding_prices.append(current_filt.iloc[:n_smallest]['prccd'].values.tolist())
+            hold = current_filt.iloc[:n_smallest]['gvkey_iid'].values.tolist()
+            holdings.append(hold)
             current_year = r['datadate'].year
-            current_holdings = holdings[-1]
+            current_holdings = hold
+            hold_price_temp = []
+            for c in current_holdings:
+                one_security = current_filt[current_filt['gvkey_iid'] == c]
+                hold_price_temp.append(one_security['prccd'].values[0])
+
+            holding_prices.append(hold_price_temp)
+
+
+    holding_prices_df = pd.DataFrame(index=sorted(trimmed_df['datadate'].unique()), data=holding_prices)
+    # evaluate returns
+
+
+
 
 
         if r['datadate'] not in unique_dates_dates:
