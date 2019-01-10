@@ -188,6 +188,32 @@ def load_secd(clean=False):
     return current_df
 
 
+def scrape_constituent_data(list_of_constituents, index_name):
+    """
+    scrapes constituent data for an index
+
+    args -- list_of_constituents: should be list of tuples of gvkey, iid for constituents
+
+    # took about 8 mins for SP600 index as of 1-10-2019
+
+    TODO: add functionality for updating df
+
+    used sp600 for SP600
+    """
+    library = 'comp'
+    table = 'sec_dprc'
+    dfs = []
+    for c in tqdm(list_of_constituents):
+        query_str = 'select {} from {}.{} WHERE gvkey = \'{}\' AND iid = \'{}\';'# and gvkey IN {};'
+        df = db.raw_sql(query_str.format(secd_cols, library, table, c[0], c[1]), date_cols=['datadate'])
+        dfs.append(df)
+
+    total_df = pd.concat(dfs)
+    total_df['datadate'] = total_df['datadate'].dt.tz_localize('US/Eastern')
+    total_df.to_hdf(FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf', **hdf_settings)
+
+
+
 def download_common_stock_price_history(db, update=True, table='sec_dprc', library='comp'):
     """
     downloads data for all common stocks (US and ADR, or tpci column is 0 or F)
