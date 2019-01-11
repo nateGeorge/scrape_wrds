@@ -220,7 +220,6 @@ def scrape_constituent_data(index='Nasdaq 100'):
     etf_name = etf_dict[index]
     index_name = index_dict[index]
     index_fn = FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf'
-    current_df = pd.read_hdf(index_fn)
 
     library = 'comp'
     table = 'sec_dprc'
@@ -240,8 +239,12 @@ def scrape_constituent_data(index='Nasdaq 100'):
     etf_gvkey = etf_sec['gvkey'].values[0]
     etf_iid = etf_sec['iid'].values[0]
 
+    # TODO: update data if already exists (need to change hdf to table)
+    # and need to check what latest date is for each security
+    # if os.path.exists(index_fn):
+        #  = pd.read_hdf(index_fn)
     query_str = 'select {} from {}.{} WHERE gvkey = \'{}\' AND iid = \'{}\';'# and gvkey IN {};'
-    df = db.raw_sql(query_str.format(secd_cols, library, table, c[0], c[1]), date_cols=['datadate'])
+    df = db.raw_sql(query_str.format(secd_cols, library, table, etf_gvkey, etf_iid), date_cols=['datadate'])
     dfs.append(df)
 
     for c in tqdm(constituent_list):
@@ -252,7 +255,6 @@ def scrape_constituent_data(index='Nasdaq 100'):
     total_df = pd.concat(dfs)
     total_df['datadate'] = total_df['datadate'].dt.tz_localize('US/Eastern')
     total_df.to_hdf(index_fn, **hdf_settings)
-
 
 
 def download_common_stock_price_history(db, update=True, table='sec_dprc', library='comp'):

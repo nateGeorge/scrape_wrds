@@ -196,11 +196,58 @@ def load_small_table(table):
     return pd.read_hdf(df_filepath)
 
 
+def get_constituent_prices_index(index='Nasdaq 100'):
+    """
+    gets
+    """
+    constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df = get_historical_constituents_wrds_hdf(index=index)
+    constituents = []
+    for d in gvkey_df.index:
+        constituents.extend(zip(gvkey_df.loc[d].values, iid_df.loc[d].values))
+
+    constituents = set(constituents)
+    constituent_list = list(constituents)
+
+    index_dict = {'Nasdaq 100': 'nasdaq100',
+                'S&P Smallcap 600 Index': 'sp600'}
+    etf_dict = {'Nasdaq 100': 'QQQ',
+                'S&P Smallcap 600 Index': 'SLY'}
+    etf_name = etf_dict[index]
+    index_name = index_dict[index]
+    index_fn = FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf'
+    current_df = pd.read_hdf(index_fn)
+    current_df.drop('curccd', inplace=True)
+    # get adjusted prices
+    for c in ['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod']:
+        current_df[c + '_adj'] = current_df[c] / current_df['ajexdi']
+
+    # get securities table to add ticker symbol to df
+    securities = load_small_table('security')
+    current_df = pd.merge(current_df, securities[['gvkey', 'iid', 'tic']], on=['gvkey', 'iid'])
+    # aapl_qqq = current_df[current_df['tic'].isin(['AAPL', 'QQQ'])]
+    aapl = current_df[current_df['tic'] == 'AAPL']
+    qqq = current_df[current_df['tic'] == 'QQQ']
+    qqq.set_index('datadate', inplace=True)
+    aapl.set_index('datadate', inplace=True)
+    keep_cols = ['cshtrd_adj', 'eps', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj']
+    full = pd.merge(qqq, aapl, left_index=True, right_index=True, suffixes=['_qqq', '_aapl'])
+    full.sort_index(inplace=True)  # ensure sorted by date
+    full['days_since_latest'] = list(range(full.shape[0] - 1, -1, -1))
+    # make sure price adjustment worked
+    full['prccd_adj_aapl'].plot(); plt.show()
+    full['prccd_adj_qqq'].plot(); plt.show()
+    cols = ['prccd_adj_qqq', 'prccd_adj_aapl', 'days_since_latest']
+    from matplotlib import cm
+    cmap = cm.get_cmap('Spectral')
+    full[cols].plot.scatter(x='prccd_adj_aapl', y='prccd_adj_qqq', c='days_since_latest', cmap=cmap); plt.show()
+
 # TODO: function for merging price data with book value for P/B values of any stock
 
 def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     """
-    tries to implement 20 smallest SPY strategy from paper (see beat_market_analysis github repo)
+    tries to implement 20 smallest SPY strategy from Fernadez paper (see beat_market_analysis github repo)
+
+    conclusion: paper is probably total junk.  Returns more like 10% annual, not 50%.
 
     from the paper, they have two filters for 'size' and 'P/B'
     assuming the size is a minimum size, and P/B is a maximum
