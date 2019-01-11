@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import pandas_market_calendars as mcal
+import matplotlib.pyplot as plt
 
 eastern = timezone('US/Eastern')
 
@@ -250,6 +251,11 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
         index_name = 'sp600'
 
     current_sec_df = pd.read_hdf(FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf')
+    # need to convert some columns to int
+    for c in ['cshoc', 'eps', 'prcod', 'market_cap']:
+        if c in current_sec_df.columns:
+            current_sec_df[c] = current_sec_df[c].astype('float64')
+
     # annual security info for book value
     fundq = load_small_table('fundq')
     # securities listing for delisted reasons (dlrsni)
@@ -330,7 +336,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
             # fill in np.nan and np.nat for rdq and ceqq
             merged = sec_df_const_sm.copy()
             merged['rdq'] = nat
-            merged['rqd'] = merged['rdq'].dt.tz_localize('US/Eastern')
+            merged['rdq'] = merged['rdq'].dt.tz_localize('US/Eastern')
             merged['ceqq'] = np.nan
         else:
             merged = pd.merge_asof(sec_df_const_sm,
@@ -341,7 +347,16 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
 
         all_merged.append(merged)
 
+    for m in tqdm(all_merged):
+        if 'rqd' in m.columns:
+            m['rdq'] = m['rqd']
+            m.drop('rqd', axis=1, inplace=True)
+
     full_df = pd.concat(all_merged)
+    # some columns with NAN are objects
+    for c in ['cshoc', 'eps', 'prcod', 'market_cap']:
+        full_df[c] = full_df[c].astype('float64')
+
     full_df['pb_ratio'] = full_df['market_cap'] / full_df['ceqq']
     # replace with what was largest value for sp600
     full_df['pb_ratio'] = full_df['pb_ratio'].replace(np.inf, 1.111e+11)
@@ -360,7 +375,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     # just start at 2k like the paper
     trimmed_df = full_df[full_df['datadate'] >= pd.to_datetime('2000-01-01').date()].copy()
     # for testing
-    trimmed_df = trimmed_df[trimmed_df['datadate'] <= pd.to_datetime('2003-01-01').date()].copy()
+    # trimmed_df = trimmed_df[trimmed_df['datadate'] <= pd.to_datetime('2003-01-01').date()].copy()
 
 
 
@@ -384,6 +399,8 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     # get initial portfolio holdings
     n_smallest = 20
     holdings = []
+    # one df for each rebalance period
+    holding_prices_dfs = []
     holding_prices = []
     first = True
 
@@ -391,6 +408,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     for d in tqdm(sorted(trimmed_df['datadate'].unique())):
         # set first holdings first time around
         if first:
+            dates = [d]
             # get prices from that date
             current = trimmed_df[trimmed_df['datadate'] == d].copy()
             # only keep securities currently in the index
@@ -401,7 +419,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
             # holding_prices.append(current_filt.iloc[:n_smallest]['prccd'].values.tolist())
             hold = current_filt.iloc[:n_smallest]['gvkey_iid'].values.tolist()
             holdings.append(hold)
-            current_year = r['datadate'].year
+            current_year = d.year
             current_holdings = hold
             hold_price_temp = []
             for c in current_holdings:
@@ -413,29 +431,40 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
             first = False
             continue
 
-        if r['datadate'].year == current_year:
+        if d.year == current_year:
+            dates.append(d)
             # append prices; TODO: if security no longer in index replace with new one
             current = trimmed_df[trimmed_df['datadate'] == d]
             hold_price_temp = []
             for c in current_holdings:
                 if c in const_comp_tuples[d.strftime('%Y-%m-%d')]:
-                    one_security = current_filt[current_filt['gvkey_iid'] == c]
-                    hold_price_temp.append(one_security['prccd'].values[0])
+                    one_security = current[current['gvkey_iid'] == c]
+                    if one_security.shape[0] == 0:  # security no longer exists
+                        hold_price_temp.append(np.nan)
+                    else:
+                        hold_price_temp.append(one_security['prccd'].values[0])
                 else:
                     hold_price_temp.append(np.nan)
 
             holding_prices.append(hold_price_temp)
-            continue
         else:
+            # make df of prices to date
+            holding_prices_df = pd.DataFrame(index=dates, data=holding_prices)
+            holding_prices_dfs.append(holding_prices_df)
             # rebalance
+            holding_prices = []
+            dates = [d]
+            # get data from today's date only
             current = trimmed_df[trimmed_df['datadate'] == d]
+            # only keep securities currently in the index
+            current = current[current['gvkey_iid'].isin(set(const_comp_tuples[d.strftime('%Y-%m-%d')]))].copy()
             current_filt = current[current['market_cap'] >= 17e6].copy()
             # take n smallest
             current_filt.sort_values(by='market_cap', inplace=True)
             # holding_prices.append(current_filt.iloc[:n_smallest]['prccd'].values.tolist())
             hold = current_filt.iloc[:n_smallest]['gvkey_iid'].values.tolist()
             holdings.append(hold)
-            current_year = r['datadate'].year
+            current_year = d.year
             current_holdings = hold
             hold_price_temp = []
             for c in current_holdings:
@@ -444,6 +473,21 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
 
             holding_prices.append(hold_price_temp)
 
+    holding_prices_df = pd.DataFrame(index=dates, data=holding_prices)
+    holding_prices_dfs.append(holding_prices_df)
 
-    holding_prices_df = pd.DataFrame(index=sorted(trimmed_df['datadate'].unique()), data=holding_prices)
     # evaluate returns
+    def average_prices(x, components=20):
+        """
+        takes average across prices to calculate overall portfolio performance
+
+        args:
+        x -- dataframe row with prices for all components
+        components -- int, number of components
+        """
+        total_sum = x.sum()
+        return total_sum / components
+
+    # since equally-weighted, take average across all securities for each year, but need to deal with NaNs
+    for h in holding_prices_dfs:
+        h['mean'] = h.apply(average_prices)
