@@ -405,6 +405,7 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
     first = True
 
 
+    # TODO: parallelize by breaking up into rebalance periods
     for d in tqdm(sorted(trimmed_df['datadate'].unique())):
         # set first holdings first time around
         if first:
@@ -489,5 +490,26 @@ def portfolio_strategy(index='S&P Smallcap 600 Index', start_date=None):
         return total_sum / components
 
     # since equally-weighted, take average across all securities for each year, but need to deal with NaNs
+    # forward-fill prices so can take straight mean
+    returns = []
+    years = []
     for h in holding_prices_dfs:
-        h['mean'] = h.apply(average_prices)
+        h.ffill(inplace=True)
+        if 'mean' in h.columns:
+            h.drop('mean', axis=1, inplace=True)
+
+        h['mean'] = h.mean(axis=1)
+        # get yearly pct change
+        returns.append((h.iloc[-1]['mean'] - h.iloc[0]['mean']) / h.iloc[0]['mean'])
+        years.append(h.index[0].year)
+
+    # get average return
+    # https://www.investopedia.com/articles/08/annualized-returns.asp
+    np.prod([ret + 1 for ret in returns]) ** (1/len(returns))
+
+    # for h in holding_prices_dfs:
+    #     if 'mean' in h.columns:
+    #         h.drop('mean', axis=1, inplace=True)
+    #
+    #     h['mean'] = h.apply(np.sum, axis=1)
+    #     h['mean'] = h['mean'] / 20
