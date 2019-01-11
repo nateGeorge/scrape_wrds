@@ -13,6 +13,8 @@ import pandas as pd
 from tqdm import tqdm
 import wrds
 
+import wrds_utils as wu
+
 FILEPATH = '/home/nate/Dropbox/data/wrds/compustat_north_america/'
 
 hdf_settings = {'key': 'data',
@@ -199,7 +201,7 @@ def load_secd(clean=False):
     return current_df
 
 
-def scrape_constituent_data(list_of_constituents, index_name):
+def scrape_constituent_data(index='Nasdaq 100'):
     """
     scrapes constituent data for an index
 
@@ -209,19 +211,47 @@ def scrape_constituent_data(list_of_constituents, index_name):
 
     TODO: add functionality for updating df
 
-    used sp600 for SP600
+    used sp600 for 'S&P Smallcap 600 Index'
     """
+    index_dict = {'Nasdaq 100': 'nasdaq100',
+                'S&P Smallcap 600 Index': 'sp600'}
+    etf_dict = {'Nasdaq 100': 'QQQ',
+                'S&P Smallcap 600 Index': 'SLY'}
+    etf_name = etf_dict[index]
+    index_name = index_dict[index]
+    index_fn = FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf'
+    current_df = pd.read_hdf(index_fn)
+
     library = 'comp'
     table = 'sec_dprc'
     dfs = []
-    for c in tqdm(list_of_constituents):
-        query_str = 'select {} from {}.{} WHERE gvkey = \'{}\' AND iid = \'{}\';'# and gvkey IN {};'
+    # from wrds_utils.py
+    constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df = wu.get_historical_constituents_wrds_hdf(index=index)
+    constituents = []
+    for d in gvkey_df.index:
+        constituents.extend(zip(gvkey_df.loc[d].values, iid_df.loc[d].values))
+
+    constituents = set(constituents)
+    constituent_list = list(constituents)
+
+    # get gvkey and iid for etf
+    securities = load_small_table('security')
+    etf_sec = securities[securities['tic'] == etf_name]
+    etf_gvkey = etf_sec['gvkey'].values[0]
+    etf_iid = etf_sec['iid'].values[0]
+
+    query_str = 'select {} from {}.{} WHERE gvkey = \'{}\' AND iid = \'{}\';'# and gvkey IN {};'
+    df = db.raw_sql(query_str.format(secd_cols, library, table, c[0], c[1]), date_cols=['datadate'])
+    dfs.append(df)
+
+    for c in tqdm(constituent_list):
         df = db.raw_sql(query_str.format(secd_cols, library, table, c[0], c[1]), date_cols=['datadate'])
         dfs.append(df)
 
+
     total_df = pd.concat(dfs)
     total_df['datadate'] = total_df['datadate'].dt.tz_localize('US/Eastern')
-    total_df.to_hdf(FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf', **hdf_settings)
+    total_df.to_hdf(index_fn, **hdf_settings)
 
 
 
