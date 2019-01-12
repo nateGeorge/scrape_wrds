@@ -257,10 +257,17 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     full_df.sort_index(inplace=True)
     full_df = full_df[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'cshoc']]
     full_df.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'shr']
+    earliest_date = full_df.index.min()
     for i, r in tqdm(single_idx_df.iterrows(), total=single_idx_df.shape[0]):
+        # skip if left index before ETF started
+        if r['thru'] <= earliest_date:
+            continue
+
         single_secd = current_df[(current_df['gvkey'] == r['gvkey']) & (current_df['iid'] == r['iid'])].copy()
         if pd.isnull(r['thru']):
             single_secd = single_secd[single_secd['datadate'] > r['from']]
+        elif r['from'] < earliest_date:
+            single_secd = single_secd[(single_secd['datadate'] > earliest_date) & (single_secd['datadate'] <= r['thru'])]
         else:
             single_secd = single_secd[(single_secd['datadate'] > r['from']) & (single_secd['datadate'] <= r['thru'])]
 
@@ -272,7 +279,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
         # some exit and enter multiple times
         if tic in counts.keys():
             counts[tic] += 1
-            full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic + counts[tic]], how='left')
+            full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic + str(counts[tic])], how='left')
         else:
             full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic], how='left')
 
@@ -282,9 +289,15 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     # look a correlations between different components
     corr = full_df.corr()
     cols_with_cl = [c for c in full_df.columns if 'cl_' in c]
-    labels = [c.split('_')[1] for c in full_df.columns if 'cl_' in c]
-    plt.bar(list(range(len(cols_with_cl))), corr['cl'][cols_with_cl].values)
-    plt.xlabel(labels)
+    # labels = [c.split('_')[1] for c in full_df.columns if 'cl_' in c]
+    values = corr['cl'][cols_with_cl].values
+    idx = np.argsort(values)[::-1]
+    labels = [c.split('_')[1] for c in corr['cl'][cols_with_cl].index]
+    xtick = list(range(len(labels)))
+    f = plt.figure(figsize=(20, 20))
+    plt.bar(xtick, values[idx])
+    ax = plt.gca()
+    ax.set_xticklabels(np.array(labels)[idx], rotation=90)
     plt.show()
 
     # original EDA for exploring aapl-qqq, but didn't restrict aapl dates
