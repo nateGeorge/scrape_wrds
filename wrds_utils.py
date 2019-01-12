@@ -46,6 +46,32 @@ def load_small_table(table):
     df_filepath = FILEPATH + 'hdf/{}.hdf'.format(table)
 
 
+def get_index_df(index):
+    """
+    gets dataframe from idxcst_his with only the specified index
+
+    args:
+    index -- string; e.g. 'S&P Smallcap 600 Index' from names_ix table.
+        - see get_historical_constituents_wrds_hdf for more examples
+    """
+    idx_names_filename = FILEPATH + 'hdf/names_ix.hdf'
+    idx_df = pd.read_hdf(idx_names_filename)
+    gvkeyx = idx_df[idx_df['conm'] == index]['gvkeyx'].values
+    if len(gvkeyx) > 1:
+        print('more than 1 gvkeyx, exiting:')
+        print(idx_df[idx_df['conm'] == index])
+        return None
+
+    gvkeyx = gvkeyx[0]
+
+    idx_hist_filename = FILEPATH + 'hdf/idxcst_his.hdf'
+    const_df = pd.read_hdf(idx_hist_filename)
+
+    single_idx_df = const_df[const_df['gvkeyx'] == gvkeyx].copy()
+
+    return single_idx_df
+
+
 def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 600 Index'):
     # adapted from beat_market_analysis constituent_utils.py
     """
@@ -63,20 +89,8 @@ def get_historical_constituents_wrds_hdf(date_range=None, index='S&P Smallcap 60
 
     NASDAQ 100: Nasdaq 100
     """
-    idx_names_filename = FILEPATH + 'hdf/names_ix.hdf'
-    idx_df = pd.read_hdf(idx_names_filename)
-    gvkeyx = idx_df[idx_df['conm'] == index]['gvkeyx'].values
-    if len(gvkeyx) > 1:
-        print('more than 1 gvkeyx, exiting:')
-        print(idx_df[idx_df['conm'] == index])
-        return
+    single_idx_df = get_index_df(index=index)
 
-    gvkeyx = gvkeyx[0]
-
-    idx_hist_filename = FILEPATH + 'hdf/idxcst_his.hdf'
-    const_df = pd.read_hdf(idx_hist_filename)
-
-    single_idx_df = const_df[const_df['gvkeyx'] == gvkeyx].copy()
     # combine with securities for ticker symbol
     securities = pd.read_hdf(FILEPATH + 'hdf/security.hdf')
     # abbreviated securities df; only ticker, gvkey, and iid
@@ -216,7 +230,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
                 'S&P Smallcap 600 Index': 'sp600'}
     etf_dict = {'Nasdaq 100': 'QQQ',
                 'S&P Smallcap 600 Index': 'SLY'}
-    etf_name = etf_dict[index]
+    etf_tic = etf_dict[index]
     index_name = index_dict[index]
     index_fn = FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf'
     current_df = pd.read_hdf(index_fn)
@@ -225,10 +239,40 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     for c in ['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod']:
         current_df[c + '_adj'] = current_df[c] / current_df['ajexdi']
 
+    # drop uncorrected for now
+    # current_df.drop(['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod', '')
+
     # get securities table to add ticker symbol to df
     securities = load_small_table('security')
     current_df = pd.merge(current_df, securities[['gvkey', 'iid', 'tic']], on=['gvkey', 'iid'])
-    # aapl_qqq = current_df[current_df['tic'].isin(['AAPL', 'QQQ'])]
+
+    # gets from-thru for components
+    single_idx_df = get_index_df(index=index)
+    single_idx_df = pd.merge(single_idx_df, securities[['gvkey', 'iid', 'tic']], on=['gvkey', 'iid'])
+    # get df for each component only when they were in the index
+    component_dfs = {}
+    full_df = current_df[current_df['tic'] == etf_tic]
+    full_df.set_index('datadate', inplace=True)
+    full_df.sort_index(inplace=True)
+    for i, r in tqdm(single_idx_df.iterrows(), total=single_idx_df.shape[0]):
+        single_secd = current_df[(current_df['gvkey'] == r['gvkey']) & (current_df['iid'] == r['iid'])].copy()
+        if pd.isnull(r['thru']):
+            single_secd = single_secd[single_secd['datadate'] > r['from']]
+        else:
+            single_secd = single_secd[(single_secd['datadate'] > r['from']) & (single_secd['datadate'] <= r['thru'])]
+
+        single_secd.set_index('datadate', inplace=True)
+        single_secd.sort_index(inplace=True)
+        single_secd = single_secd[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'eps', 'cshoc', 'tic']]
+        single_secd.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'eps', 'shr', 'tic']
+        tic = single_secd.iloc[0]['tic']
+        full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic], how='left')
+
+        component_dfs[tic] = single_secd
+
+    
+
+    # original EDA for exploring aapl-qqq, but didn't restrict aapl dates
     aapl = current_df[current_df['tic'] == 'AAPL']
     qqq = current_df[current_df['tic'] == 'QQQ']
     qqq.set_index('datadate', inplace=True)
