@@ -198,7 +198,11 @@ def load_small_table(table):
 
 def get_constituent_prices_index(index='Nasdaq 100'):
     """
-    gets
+    gets prices of index as well as components of the index while they were in the index
+
+    args:
+    index -- string, label for index (should match that in names_ix table)
+        - see get_historical_constituents_wrds_hdf for some index strings
     """
     constituent_companies, unique_dates, ticker_df, gvkey_df, iid_df = get_historical_constituents_wrds_hdf(index=index)
     constituents = []
