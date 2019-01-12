@@ -251,9 +251,12 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     single_idx_df = pd.merge(single_idx_df, securities[['gvkey', 'iid', 'tic']], on=['gvkey', 'iid'])
     # get df for each component only when they were in the index
     component_dfs = {}
+    counts = {}
     full_df = current_df[current_df['tic'] == etf_tic]
     full_df.set_index('datadate', inplace=True)
     full_df.sort_index(inplace=True)
+    full_df = full_df[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'cshoc']]
+    full_df.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'shr']
     for i, r in tqdm(single_idx_df.iterrows(), total=single_idx_df.shape[0]):
         single_secd = current_df[(current_df['gvkey'] == r['gvkey']) & (current_df['iid'] == r['iid'])].copy()
         if pd.isnull(r['thru']):
@@ -266,11 +269,23 @@ def get_constituent_prices_index(index='Nasdaq 100'):
         single_secd = single_secd[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'eps', 'cshoc', 'tic']]
         single_secd.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'eps', 'shr', 'tic']
         tic = single_secd.iloc[0]['tic']
-        full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic], how='left')
+        # some exit and enter multiple times
+        if tic in counts.keys():
+            counts[tic] += 1
+            full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic + counts[tic]], how='left')
+        else:
+            full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic], how='left')
 
         component_dfs[tic] = single_secd
+        counts[tic] = 1
 
-    
+    # look a correlations between different components
+    corr = full_df.corr()
+    cols_with_cl = [c for c in full_df.columns if 'cl_' in c]
+    labels = [c.split('_')[1] for c in full_df.columns if 'cl_' in c]
+    plt.bar(list(range(len(cols_with_cl))), corr['cl'][cols_with_cl].values)
+    plt.xlabel(labels)
+    plt.show()
 
     # original EDA for exploring aapl-qqq, but didn't restrict aapl dates
     aapl = current_df[current_df['tic'] == 'AAPL']
