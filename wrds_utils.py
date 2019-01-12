@@ -220,7 +220,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     index_name = index_dict[index]
     index_fn = FILEPATH + 'hdf/' + index_name + '_constituents_secd.hdf'
     current_df = pd.read_hdf(index_fn)
-    current_df.drop('curccd', inplace=True)
+    current_df.drop('curcdd', axis=1, inplace=True)
     # get adjusted prices
     for c in ['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod']:
         current_df[c + '_adj'] = current_df[c] / current_df['ajexdi']
