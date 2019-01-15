@@ -242,7 +242,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     # drop uncorrected for now
     # current_df.drop(['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod', '')
 
-    # get securities table to add ticker symbol to df
+    # get securities table to add ticker symbol to df with daily security price data
     securities = load_small_table('security')
     current_df = pd.merge(current_df, securities[['gvkey', 'iid', 'tic']], on=['gvkey', 'iid'])
 
@@ -267,7 +267,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
         if pd.isnull(r['thru']):
             single_secd = single_secd[single_secd['datadate'] > r['from']]
         elif r['from'] < earliest_date:
-            single_secd = single_secd[(single_secd['datadate'] > earliest_date) & (single_secd['datadate'] <= r['thru'])]
+            single_secd = single_secd[(single_secd['datadate'] >= earliest_date) & (single_secd['datadate'] <= r['thru'])]
         else:
             single_secd = single_secd[(single_secd['datadate'] > r['from']) & (single_secd['datadate'] <= r['thru'])]
 
@@ -281,11 +281,39 @@ def get_constituent_prices_index(index='Nasdaq 100'):
             counts[tic] += 1
             full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic + str(counts[tic])], how='left')
         else:
+            counts[tic] = 1
             full_df = pd.merge(full_df, single_secd, left_index=True, right_index=True, suffixes=['', '_' + tic], how='left')
 
         component_dfs[tic] = single_secd
-        counts[tic] = 1
 
+
+    # returns df with all daily prices of index ETF and components;
+    # from-thru data for index, and
+    return full_df
+
+# try ML on constituent price data -- sort constituents by market cap
+# get market cap for each component first
+tickers_in_full_df = [c.split('_')[1] for c in full_df.columns if 'shr_' in c]
+for t in tqdm(tickers_in_full_df):
+    full_df['mkcp_' + t] = full_df['shr_' + t] * full_df['cl_' + t]
+
+features, targets = [], []
+counter = 0
+for i, r in full_df.iterrows():
+    non_na = r.dropna()
+    non_na_cl_cols = [c for c in non_na.index if 'cl_' in c]
+    prices = non_na[non_na_cl_cols]
+    counter += 1
+    if counter == 2:
+        break
+
+
+
+def EDA_on_constituent_prices(full_df):
+    """
+    plots sorted correlation between companies in an ETF of index and the ETF price
+    also has legacy code for looking at AAPL-QQQ
+    """
     # look a correlations between different components
     corr = full_df.corr()
     cols_with_cl = [c for c in full_df.columns if 'cl_' in c]
@@ -300,6 +328,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     ax.set_xticklabels(np.array(labels)[idx], rotation=90)
     plt.show()
 
+    """
     # original EDA for exploring aapl-qqq, but didn't restrict aapl dates
     aapl = current_df[current_df['tic'] == 'AAPL']
     qqq = current_df[current_df['tic'] == 'QQQ']
@@ -316,6 +345,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     from matplotlib import cm
     cmap = cm.get_cmap('Spectral')
     full[cols].plot.scatter(x='prccd_adj_aapl', y='prccd_adj_qqq', c='days_since_latest', cmap=cmap); plt.show()
+    """
 
 # TODO: function for merging price data with book value for P/B values of any stock
 
