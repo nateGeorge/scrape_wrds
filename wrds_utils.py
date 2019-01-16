@@ -236,8 +236,17 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     current_df = pd.read_hdf(index_fn)
     current_df.drop('curcdd', axis=1, inplace=True)
     # get adjusted prices
+    # With regard to the adjustment factor it is important to remember that,
+    # in general, per share items are divided and share items are multiplied by the adjustment factor
+    # https://researchfinancial.wordpress.com/2014/10/04/price-data-adjustments-compustat/
     for c in ['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod']:
         current_df[c + '_adj'] = current_df[c] / current_df['ajexdi']
+
+    # adjusted shares outstanding
+    current_df['cshoc_adj'] = current_df['cshoc'] * current_df['ajexdi']
+
+    # get market cap based on close prices
+    current_df['mkcp'] = current_df['cshoc'] * current_df['prccd']
 
     # drop uncorrected for now
     # current_df.drop(['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod', '')
@@ -255,8 +264,8 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     full_df = current_df[current_df['tic'] == etf_tic]
     full_df.set_index('datadate', inplace=True)
     full_df.sort_index(inplace=True)
-    full_df = full_df[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'cshoc']]
-    full_df.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'shr']
+    full_df = full_df[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'cshoc_adj', 'mkcp']]
+    full_df.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'shr', 'mkcp']
     earliest_date = full_df.index.min()
     for i, r in tqdm(single_idx_df.iterrows(), total=single_idx_df.shape[0]):
         # skip if left index before ETF started
@@ -273,8 +282,8 @@ def get_constituent_prices_index(index='Nasdaq 100'):
 
         single_secd.set_index('datadate', inplace=True)
         single_secd.sort_index(inplace=True)
-        single_secd = single_secd[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'eps', 'cshoc', 'tic']]
-        single_secd.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'eps', 'shr', 'tic']
+        single_secd = single_secd[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'eps', 'cshoc', 'mkcp', 'tic']]
+        single_secd.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'eps', 'shr', 'mkcp', 'tic']
         tic = single_secd.iloc[0]['tic']
         # some exit and enter multiple times
         if tic in counts.keys():
@@ -291,21 +300,56 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     # from-thru data for index, and
     return full_df
 
-# try ML on constituent price data -- sort constituents by market cap
-# get market cap for each component first
-tickers_in_full_df = [c.split('_')[1] for c in full_df.columns if 'shr_' in c]
-for t in tqdm(tickers_in_full_df):
-    full_df['mkcp_' + t] = full_df['shr_' + t] * full_df['cl_' + t]
+def ml_on_full_df():
+    # try predicting ETF market cap from component market caps
+    # try ML on constituent price data -- sort constituents by market cap
+    # get market cap for each component first
+    tickers_in_full_df = [c.split('_')[1] for c in full_df.columns if 'shr_' in c]
+    for t in tqdm(tickers_in_full_df):
+        full_df['mkcp_' + t] = full_df['shr_' + t] * full_df['cl_' + t]
 
-features, targets = [], []
-counter = 0
-for i, r in full_df.iterrows():
-    non_na = r.dropna()
-    non_na_cl_cols = [c for c in non_na.index if 'cl_' in c]
-    prices = non_na[non_na_cl_cols]
-    counter += 1
-    if counter == 2:
+    # also get market cap for QQQ
+    full_df['mkcp'] = full_df['shr'] * full_df['cl']
+
+    # pct price change for each security
+    for t in tqdm(tickers_in_full_df):
+        full_df['pct_cl_chg_' + t] = full_df['cl_' + t].pct_change()
+
+    # pct_chg for qqq
+    full_df['pct_cl_chg'] = full_df['cl'].pct_change()
+
+    # predict overall market cap based on individual market caps, then use to backcalculate prices
+
+    # predict qqq price change based on all other prices changes for same day
+    features, targets = [], []
+    max_size = gvkey_df.shape[1]
+    for i, (idx, r) in tqdm(enumerate(full_df.iterrows()), total=full_df.shape[0]):
+        # no pct changes for first row
+        if i == 0:
+            continue
+
+        non_na = r.dropna()
+        # non_na_cl_cols = [c for c in non_na.index if 'cl_' in c]
+        non_na_pct_cols = [c for c in non_na.index if 'pct_cl_chg_' in c]
+        # sort by market cap
+
+        # prices = non_na[non_na_cl_cols]
+        raw_chgs = non_na[non_na_pct_cols]
+        pct_chgs = raw_chgs.values.tolist() + (max_size - raw_chgs.shape[0]) * [np.nan]
+        features.append(pct_chgs.values)
+        targets.append(r['pct_cl_chg'])
         break
+
+    features = np.array(features)
+    targets = np.array(targets)
+
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.model_selection import train_test_split
+
+    rfr = RandomForestRegressor(n_estimators=500)
+    x_tr, x_te, y_tr, y_te = train_test_split(features, targets, random_state=42)
+
+    rfr.fit(x_tr, y_tr)
 
 
 
