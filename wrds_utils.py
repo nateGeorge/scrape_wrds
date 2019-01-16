@@ -303,13 +303,6 @@ def get_constituent_prices_index(index='Nasdaq 100'):
 def ml_on_full_df():
     # try predicting ETF market cap from component market caps
     # try ML on constituent price data -- sort constituents by market cap
-    # get market cap for each component first
-    tickers_in_full_df = [c.split('_')[1] for c in full_df.columns if 'shr_' in c]
-    for t in tqdm(tickers_in_full_df):
-        full_df['mkcp_' + t] = full_df['shr_' + t] * full_df['cl_' + t]
-
-    # also get market cap for QQQ
-    full_df['mkcp'] = full_df['shr'] * full_df['cl']
 
     # pct price change for each security
     for t in tqdm(tickers_in_full_df):
