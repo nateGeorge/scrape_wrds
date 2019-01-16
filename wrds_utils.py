@@ -325,13 +325,14 @@ def ml_on_full_df():
         # non_na_cl_cols = [c for c in non_na.index if 'cl_' in c]
         non_na_pct_cols = [c for c in non_na.index if 'pct_cl_chg_' in c]
         # sort by market cap
-
+        tickers = [t.split('_')[-1] for t in non_na_pct_cols]
+        mkcps = non_na[['mkcp_' + t for t in tickers]].values
+        srt_idx = np.argsort(mkcps)[::-1]  # greatest to least
         # prices = non_na[non_na_cl_cols]
         raw_chgs = non_na[non_na_pct_cols]
-        pct_chgs = raw_chgs.values.tolist() + (max_size - raw_chgs.shape[0]) * [np.nan]
-        features.append(pct_chgs.values)
+        pct_chgs = list(raw_chgs.values[srt_idx]) + (max_size - raw_chgs.shape[0]) * [-100]
+        features.append(pct_chgs)
         targets.append(r['pct_cl_chg'])
-        break
 
     features = np.array(features)
     targets = np.array(targets)
@@ -339,10 +340,22 @@ def ml_on_full_df():
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import train_test_split
 
-    rfr = RandomForestRegressor(n_estimators=500)
+    rfr = RandomForestRegressor(n_estimators=500, n_jobs=-1, random_state=42)
     x_tr, x_te, y_tr, y_te = train_test_split(features, targets, random_state=42)
 
     rfr.fit(x_tr, y_tr)
+    print(rfr.score(x_tr, y_tr))
+    print(rfr.score(x_te, y_te))
+
+    # now try to predict one day in the future
+    features_fut = features[:-1]
+    targets_fut = targets[1:]
+
+    x_tr, x_te, y_tr, y_te = train_test_split(features_fut, targets_fut, random_state=42)
+
+    rfr.fit(x_tr, y_tr)
+    print(rfr.score(x_tr, y_tr))
+    print(rfr.score(x_te, y_te))
 
 
 
