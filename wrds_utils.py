@@ -359,6 +359,14 @@ def ml_on_full_df():
     print(rfr.score(x_tr, y_tr))
     print(rfr.score(x_te, y_te))
 
+    import seaborn as sns
+
+    feat_targ_fut_df = pd.DataFrame(data=features_fut)
+    feat_targ_fut_df['targets'] = targets_fut
+
+    feat_targ_df = pd.DataFrame(data=features)
+    feat_targ_df['targets'] = targets
+    sns.heatmap(feat_targ_df.corr()); plt.show()
 
 
 
