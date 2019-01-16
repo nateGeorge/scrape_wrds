@@ -10,6 +10,8 @@ import pandas as pd
 from tqdm import tqdm
 import pandas_market_calendars as mcal
 import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
 
 eastern = timezone('US/Eastern')
 
@@ -337,26 +339,36 @@ def ml_on_full_df():
     features = np.array(features)
     targets = np.array(targets)
 
-    from sklearn.ensemble import RandomForestRegressor
-    from sklearn.model_selection import train_test_split
-
-    rfr = RandomForestRegressor(n_estimators=500, n_jobs=-1, random_state=42)
-    x_tr, x_te, y_tr, y_te = train_test_split(features, targets, random_state=42)
+    rfr = RandomForestRegressor(n_estimators=500, max_depth=10, n_jobs=-1, random_state=42)
+    # x_tr, x_te, y_tr, y_te = train_test_split(features, targets, random_state=42)
+    x_tr, x_te, y_tr, y_te = make_train_test(features, targets)
 
     rfr.fit(x_tr, y_tr)
     print(rfr.score(x_tr, y_tr))
     print(rfr.score(x_te, y_te))
 
     # now try to predict one day in the future
-    features_fut = features[:-1]
+    features_fut = np.hstack((features[:-1], targets[:-1][:, np.newaxis]))
     targets_fut = targets[1:]
 
-    x_tr, x_te, y_tr, y_te = train_test_split(features_fut, targets_fut, random_state=42)
+    # x_tr, x_te, y_tr, y_te = train_test_split(features_fut, targets_fut, random_state=42)
+    x_tr, x_te, y_tr, y_te = make_train_test(features_fut, targets_fut)
 
     rfr.fit(x_tr, y_tr)
+    # one day to the next seems to have to predictive power based on close price alone
     print(rfr.score(x_tr, y_tr))
     print(rfr.score(x_te, y_te))
 
+
+
+
+def make_train_test(features, targets, tr_frac=0.75):
+    tr_size = int(tr_frac * features.shape[0])
+    x_tr = features[:tr_size]
+    x_te = features[tr_size:]
+    y_tr = targets[:tr_size]
+    y_te = targets[tr_size:]
+    return x_tr, x_te, y_tr, y_te
 
 
 def EDA_on_constituent_prices(full_df):
