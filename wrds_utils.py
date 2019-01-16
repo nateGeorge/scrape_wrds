@@ -303,6 +303,7 @@ for i, r in full_df.iterrows():
     non_na = r.dropna()
     non_na_cl_cols = [c for c in non_na.index if 'cl_' in c]
     prices = non_na[non_na_cl_cols]
+
     counter += 1
     if counter == 2:
         break
