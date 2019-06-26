@@ -10,6 +10,8 @@ import pandas as pd
 from tqdm import tqdm
 import pandas_market_calendars as mcal
 import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
 
 eastern = timezone('US/Eastern')
 
@@ -236,8 +238,17 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     current_df = pd.read_hdf(index_fn)
     current_df.drop('curcdd', axis=1, inplace=True)
     # get adjusted prices
+    # With regard to the adjustment factor it is important to remember that,
+    # in general, per share items are divided and share items are multiplied by the adjustment factor
+    # https://researchfinancial.wordpress.com/2014/10/04/price-data-adjustments-compustat/
     for c in ['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod']:
         current_df[c + '_adj'] = current_df[c] / current_df['ajexdi']
+
+    # adjusted shares outstanding
+    current_df['cshoc_adj'] = current_df['cshoc'] * current_df['ajexdi']
+
+    # get market cap based on close prices
+    current_df['mkcp'] = current_df['cshoc'] * current_df['prccd']
 
     # drop uncorrected for now
     # current_df.drop(['cshtrd', 'prccd', 'prchd', 'prcld', 'prcod', '')
@@ -255,8 +266,8 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     full_df = current_df[current_df['tic'] == etf_tic]
     full_df.set_index('datadate', inplace=True)
     full_df.sort_index(inplace=True)
-    full_df = full_df[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'cshoc']]
-    full_df.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'shr']
+    full_df = full_df[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'cshoc_adj', 'mkcp']]
+    full_df.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'shr', 'mkcp']
     earliest_date = full_df.index.min()
     for i, r in tqdm(single_idx_df.iterrows(), total=single_idx_df.shape[0]):
         # skip if left index before ETF started
@@ -273,8 +284,8 @@ def get_constituent_prices_index(index='Nasdaq 100'):
 
         single_secd.set_index('datadate', inplace=True)
         single_secd.sort_index(inplace=True)
-        single_secd = single_secd[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'eps', 'cshoc', 'tic']]
-        single_secd.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'eps', 'shr', 'tic']
+        single_secd = single_secd[['cshtrd_adj', 'prccd_adj', 'prchd_adj', 'prcld_adj', 'prcod_adj', 'eps', 'cshoc', 'mkcp', 'tic']]
+        single_secd.columns = ['vol', 'cl', 'hi', 'lo', 'op', 'eps', 'shr', 'mkcp', 'tic']
         tic = single_secd.iloc[0]['tic']
         # some exit and enter multiple times
         if tic in counts.keys():
@@ -291,6 +302,7 @@ def get_constituent_prices_index(index='Nasdaq 100'):
     # from-thru data for index, and
     return full_df
 
+<<<<<<< HEAD
 # try ML on constituent price data -- sort constituents by market cap
 # get market cap for each component first
 tickers_in_full_df = [c.split('_')[1] for c in full_df.columns if 'shr_' in c]
@@ -307,7 +319,83 @@ for i, r in full_df.iterrows():
     counter += 1
     if counter == 2:
         break
+=======
+def ml_on_full_df():
+    # try predicting ETF market cap from component market caps
+    # try ML on constituent price data -- sort constituents by market cap
 
+    # pct price change for each security
+    for t in tqdm(tickers_in_full_df):
+        full_df['pct_cl_chg_' + t] = full_df['cl_' + t].pct_change()
+
+    # pct_chg for qqq
+    full_df['pct_cl_chg'] = full_df['cl'].pct_change()
+
+    # predict overall market cap based on individual market caps, then use to backcalculate prices
+
+    # predict qqq price change based on all other prices changes for same day
+    features, targets = [], []
+    max_size = gvkey_df.shape[1]
+    for i, (idx, r) in tqdm(enumerate(full_df.iterrows()), total=full_df.shape[0]):
+        # no pct changes for first row
+        if i == 0:
+            continue
+
+        non_na = r.dropna()
+        # non_na_cl_cols = [c for c in non_na.index if 'cl_' in c]
+        non_na_pct_cols = [c for c in non_na.index if 'pct_cl_chg_' in c]
+        # sort by market cap
+        tickers = [t.split('_')[-1] for t in non_na_pct_cols]
+        mkcps = non_na[['mkcp_' + t for t in tickers]].values
+        srt_idx = np.argsort(mkcps)[::-1]  # greatest to least
+        # prices = non_na[non_na_cl_cols]
+        raw_chgs = non_na[non_na_pct_cols]
+        pct_chgs = list(raw_chgs.values[srt_idx]) + (max_size - raw_chgs.shape[0]) * [-100]
+        features.append(pct_chgs)
+        targets.append(r['pct_cl_chg'])
+
+    features = np.array(features)
+    targets = np.array(targets)
+
+    rfr = RandomForestRegressor(n_estimators=500, max_depth=10, n_jobs=-1, random_state=42)
+    # x_tr, x_te, y_tr, y_te = train_test_split(features, targets, random_state=42)
+    x_tr, x_te, y_tr, y_te = make_train_test(features, targets)
+
+    rfr.fit(x_tr, y_tr)
+    print(rfr.score(x_tr, y_tr))
+    print(rfr.score(x_te, y_te))
+
+    # now try to predict one day in the future
+    features_fut = np.hstack((features[:-1], targets[:-1][:, np.newaxis]))
+    targets_fut = targets[1:]
+
+    # x_tr, x_te, y_tr, y_te = train_test_split(features_fut, targets_fut, random_state=42)
+    x_tr, x_te, y_tr, y_te = make_train_test(features_fut, targets_fut)
+
+    rfr.fit(x_tr, y_tr)
+    # one day to the next seems to have to predictive power based on close price alone
+    print(rfr.score(x_tr, y_tr))
+    print(rfr.score(x_te, y_te))
+
+    import seaborn as sns
+
+    feat_targ_fut_df = pd.DataFrame(data=features_fut)
+    feat_targ_fut_df['targets'] = targets_fut
+
+    feat_targ_df = pd.DataFrame(data=features)
+    feat_targ_df['targets'] = targets
+    sns.heatmap(feat_targ_df.corr()); plt.show()
+
+
+>>>>>>> 6e94c3779536426696e18cf293167c378afe69bb
+
+def make_train_test(features, targets, tr_frac=0.75):
+    tr_size = int(tr_frac * features.shape[0])
+    x_tr = features[:tr_size]
+    x_te = features[tr_size:]
+    y_tr = targets[:tr_size]
+    y_te = targets[tr_size:]
+    return x_tr, x_te, y_tr, y_te
 
 
 def EDA_on_constituent_prices(full_df):
