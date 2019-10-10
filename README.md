@@ -1,5 +1,5 @@
 # scrape_wrds
-getting data from WRDS for stocks
+If you have access to the WRDS database, this can help with getting data from WRDS for stocks.  Scrapes many of the WRDS databases.
 
 
 # fixing pgpass/password issues
